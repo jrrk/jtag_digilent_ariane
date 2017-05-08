@@ -1,0 +1,217 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include <helper/time_support.h>
+
+#include "target/target.h"
+#include <jtag/interface.h>
+#include <jtag/swd.h>
+#include <jtag/commands.h>
+#include <libjaylink/libjaylink.h>
+#include "jim.h"
+#include "jtag.h"
+#include "minidriver.h"
+#include "interface.h"
+#include "interfaces.h"
+#include <transport/transport.h>
+#include <jtag/jtag.h>
+
+extern struct jtag_interface ftdi_interface;
+
+struct target *all_targets;
+static struct target_event_callback *target_event_callbacks;
+static struct target_timer_callback *target_timer_callbacks;
+LIST_HEAD(target_reset_callback_list);
+LIST_HEAD(target_trace_callback_list);
+static const int polling_interval = 100;
+struct command_context context, *global_cmd_ctx = &context;
+struct command_invocation command, *cmd = &command;
+struct command current;
+
+struct jtag_interface jlink_interface = {
+        .name = "jlink",
+};
+
+int Jim_InitStaticExtensions(Jim_Interp *interp)
+{
+        return JIM_OK;
+}
+
+/* invoke periodic callbacks immediately */
+int target_call_timer_callbacks_now(void)
+{
+  return ERROR_OK;
+}
+
+int gdb_actual_connections;
+
+struct target *get_target_by_num(int num)
+{
+        struct target *target = all_targets;
+
+        while (target) {
+                if (target->target_number == num)
+                        return target;
+                target = target->next;
+        }
+
+        return NULL;
+}
+
+struct target *get_current_target(struct command_context *cmd_ctx)
+{
+        struct target *target = get_target_by_num(cmd_ctx->current_target);
+
+        if (target == NULL) {
+                LOG_ERROR("BUG: current_target out of bounds");
+                exit(-1);
+        }
+
+        return target;
+}
+
+  int my_command_init(void)
+{
+  const char *argv_7[] = {"program", "<filename>", NULL};
+  const char *argv_6[] = {"program", "default", NULL};
+  const char *argv_5[] = {"measure_clk", "default", NULL};
+  const char *argv_4[] = {"srst_deasserted", "default", NULL};
+  const char *argv_3[] = {"power_restore", "default", NULL};
+  const char *argv_2[] = {"script", "<file>", NULL};
+  const char *argv_1[] = {"script", "filename of OpenOCD script (tcl) to run", NULL};
+  const char *argv1[] = {"find", "<file>", NULL};
+  const char *argv2[] = {"3", NULL};
+  const char *argv3[] = {"ftdi", NULL};
+  const char *argv4[] = {"Digilent USB Device", NULL};
+  const char *argv5[] = {"0x0403", "0x6010", NULL};
+  const char *argv6[] = {"0", NULL};
+  const char *argv7[] = {"0x0088", "0x008b", NULL};
+  const char *argv8[] = {"none", NULL};
+  const char *argv9[] = {"1000", NULL};
+  const char *argv10[] = {NULL};
+  struct command_invocation command;
+  struct command current;
+  struct jtag_tap tap1;
+  int expect[] = {0x13631093};
+  log_init();
+  context.interp = Jim_CreateInterp();
+  command.ctx = global_cmd_ctx;
+  command.current = &current;
+  command.name = "add_usage_text";
+  command.argc = 2;
+  command.argv = argv1;
+  handle_help_add_command(&command);
+  command.name = "add_help_text";
+  command.argc = 2;
+  command.argv = argv1;
+  handle_help_add_command(&command);
+  command.name = "add_help_text";
+  command.argc = 2;
+  command.argv = argv_1;
+  handle_help_add_command(&command);
+  command.name = "add_help_text";
+  command.argc = 2;
+  command.argv = argv_2;
+  handle_help_add_command(&command);
+  command.name = "add_help_text";
+  command.argc = 2;
+  command.argv = argv_3;
+  handle_help_add_command(&command);
+  command.name = "add_help_text";
+  command.argc = 2;
+  command.argv = argv_4;
+  handle_help_add_command(&command);
+  command.name = "add_help_text";
+  command.argc = 2;
+  command.argv = argv_5;
+  handle_help_add_command(&command);
+  command.name = "add_help_text";
+  command.argc = 2;
+  command.argv = argv_6;
+  handle_help_add_command(&command);
+  command.name = "add_usage_text";
+  command.argc = 2;
+  command.argv = argv_7;
+  handle_help_add_command(&command);
+  command.name = "debug_level";
+  command.argc = 1;
+  command.argv = argv2;
+  handle_debug_level_command(&command);
+  command.name = "interface";
+  command.argc = 1;
+  command.argv = argv3;
+  handle_interface_command (&command);
+  command.name = "ftdi_device_desc";
+  command.argc = 1;
+  command.argv = argv4;
+  ftdi_handle_device_desc_command(&command);
+  command.name = "ftdi_vid_pid";
+  command.argc = 2;
+  command.argv = argv5;
+  ftdi_handle_vid_pid_command(&command);
+  command.name = "ftdi_channel";
+  command.argc = 1;
+  command.argv = argv6; 
+  ftdi_handle_channel_command(&command);
+  command.name = "ftdi_layout_init";
+  command.argc = 2;
+  command.argv = argv7; 
+  ftdi_handle_layout_init_command(&command);
+  command.name = "reset_config";
+  command.argc = 1;
+  command.argv = argv8; 
+  handle_reset_config_command(&command);
+  command.name = "adapter_khz";
+  command.argc = 1;
+  command.argv = argv9; 
+  handle_adapter_khz_command(&command);
+  tap1.chip = "artix";
+  tap1.tapname = "tap";
+  tap1.dotted_name = "artix.tap";
+  tap1.abs_chain_position = 0;
+  tap1.disabled_after_reset = false;
+  tap1.enabled = true;
+  tap1.ir_length = 6;
+  tap1.ir_capture_value = 1;
+  tap1.expected = 0x0;
+  tap1.ir_capture_mask = 3;
+  tap1.expected_mask = 0x0;
+  tap1.idcode = 0;
+  tap1.hasidcode = false;
+  tap1.expected_ids = expect;
+  tap1.expected_ids_cnt = 1;
+  tap1.ignore_version = false;
+  tap1.cur_instr = 0x0;
+  tap1.bypass = 0;
+  tap1.event_action = 0x0;
+  tap1.next_tap = 0x0;
+  tap1.dap = 0x0;
+  tap1.priv = 0x0;
+  jtag_tap_init(&tap1);
+  jtag_init(global_cmd_ctx);
+  jtag_init_inner(global_cmd_ctx);
+  jtag_add_statemove(TAP_IRSHIFT);
+  if (1)
+    {
+      uint8_t in_bits[] = {10};
+      uint8_t out_bits[] = {0};
+      struct jtag_tap *active = jtag_tap_by_position(0);
+      struct scan_field field = {
+		.num_bits = 6,
+		.out_value = out_bits,
+		.in_value = in_bits,
+	};
+      jtag_add_statemove(TAP_IRSHIFT);
+      jtag_add_ir_scan_noverify(active, &field, TAP_IRSHIFT);
+      jtag_execute_queue();
+      printf("IR capture = %X\n", *out_bits);
+    }
+  //  {TAP_IDLE, TAP_DRCAPTURE, TAP_DREXIT1, TAP_IRSELECT, TAP_DRSHIFT, TAP_IRSELECT, TAP_DRUPDATE, TAP_DRCAPTURE, TAP_DRSELECT, TAP_IRSHIFT, TAP_IRCAPTURE, TAP_IDLE};
+  return 0;
+}
+
+int main(int argc, char **argv)
+{
+  my_command_init();
+}
