@@ -305,7 +305,7 @@
 /* #undef _DEBUG_FREE_SPACE_ */
 
 /* Print verbose JTAG I/O messages */
-#define _DEBUG_JTAG_IO_
+/* #undef _DEBUG_JTAG_IO_ */
 
 /* Print verbose USB communication messages */
 /* #undef _DEBUG_USB_COMMS_ */

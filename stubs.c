@@ -28,6 +28,9 @@ static const int polling_interval = 100;
 struct command_context context, *global_cmd_ctx = &context;
 struct command_invocation my_command, *cmd = &my_command;
 struct command current;
+struct command current;
+struct jtag_tap tap1;
+int expect[] = {0x13631093};
 
 struct jtag_interface jlink_interface = {
         .name = "jlink",
@@ -88,12 +91,8 @@ struct target *get_current_target(struct command_context *cmd_ctx)
   const char *argv6[] = {"0", NULL};
   const char *argv7[] = {"0x0088", "0x008b", NULL};
   const char *argv8[] = {"none", NULL};
-  const char *argv9[] = {"1000", NULL};
+  const char *argv9[] = {"10000", NULL};
   const char *argv10[] = {NULL};
-  //  struct command_invocation my_command;
-  struct command current;
-  struct jtag_tap tap1;
-  int expect[] = {0x13631093};
   log_init();
   context.interp = Jim_CreateInterp();
   my_command.ctx = global_cmd_ctx;
@@ -134,10 +133,12 @@ struct target *get_current_target(struct command_context *cmd_ctx)
   my_command.argc = 2;
   my_command.argv = argv_7;
   handle_help_add_command(&my_command);
+#if 0
   my_command.name = "debug_level";
   my_command.argc = 1;
   my_command.argv = argv2;
   handle_debug_level_command(&my_command);
+#endif  
   my_command.name = "interface";
   my_command.argc = 1;
   my_command.argv = argv3;
@@ -192,6 +193,25 @@ struct target *get_current_target(struct command_context *cmd_ctx)
   jtag_init(global_cmd_ctx);
   jtag_init_inner(global_cmd_ctx);
   jtag_add_statemove(TAP_IRSHIFT);
+  my_command.name = "svf";
+  my_command.argc = 0;
+  my_command.argv = argv10;
+  my_command.ctx = global_cmd_ctx;
+  handle_scan_chain_command(&my_command);
+  return 0;
+}
+
+int main(int argc, char **argv)
+{
+  my_command_init();
+  my_command.name = "svf";
+  my_command.argc = --argc;
+  my_command.argv = ++argv;
+  my_command.ctx = global_cmd_ctx;
+  handle_svf_command(&my_command);
+}
+
+#if 0
   if (1)
     {
       uint8_t in_bits[] = {10};
@@ -208,16 +228,4 @@ struct target *get_current_target(struct command_context *cmd_ctx)
       printf("IR capture = %X\n", *out_bits);
     }
   //  {TAP_IDLE, TAP_DRCAPTURE, TAP_DREXIT1, TAP_IRSELECT, TAP_DRSHIFT, TAP_IRSELECT, TAP_DRUPDATE, TAP_DRCAPTURE, TAP_DRSELECT, TAP_IRSHIFT, TAP_IRCAPTURE, TAP_IDLE};
-  return 0;
-}
-
-int main(int argc, char **argv)
-{
-  //  struct command_invocation my_command;
-  my_command_init();
-  my_command.name = "svf";
-  my_command.argc = --argc;
-  my_command.argv = ++argv;
-  my_command.ctx = global_cmd_ctx;
-  handle_svf_command(&my_command);
-}
+#endif
