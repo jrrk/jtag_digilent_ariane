@@ -63,7 +63,7 @@ reg EN;
 wire CLK = jtag_clk;
 reg  WE;
 wire SSR = 1'b0;
-reg [5:0] CNT, CNT2;
+reg [5:0] CNT, CNT2, OFF;
 
 always @(posedge jtag_clk)
     begin
@@ -72,6 +72,7 @@ always @(posedge jtag_clk)
         {LED16_R,LED16_G,LED16_B} = 0;
         {LED17_R,LED17_G,LED17_B} = 0;
         CNT = 0;
+        OFF = 0;
         SR = 0;
         WE = 0;
         EN = 0;
@@ -95,6 +96,7 @@ always @(posedge jtag_clk)
             CNT = CNT + 1;
             if (CNT == wid)
                     begin
+                    OFF = OFF + 1;
                     ADDR = ADDR + 1;
                     DI = SR[dataw-1:0];
                     EN = 1'b1;
@@ -209,6 +211,6 @@ always @(posedge jtag_clk)
        .WEB(1'b0)         // Port A Write Enable wire
    ); // 
 
-assign LED = i_dip[15] ? {WE,CNT2,ADDR} : (i_dip[0] ? DOB[31:16] : DOB[15:0]);
+assign LED = i_dip[15] ? {WE,CNT2,OFF} : (i_dip[0] ? DOB[31:16] : DOB[15:0]);
 				
 endmodule
