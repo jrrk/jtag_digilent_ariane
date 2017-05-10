@@ -1073,7 +1073,7 @@ XXR_common:
 					pbuffer_tmp = &xxr_para_tmp->smask;
 					xxr_para_tmp->data_mask |= XXR_SMASK;
 				} else {
-					LOG_ERROR("unknow parameter: %s", argus[i]);
+					LOG_ERROR("unknown parameter: %s", argus[i]);
 					return ERROR_FAIL;
 				}
 				if (ERROR_OK !=
@@ -1206,6 +1206,7 @@ XXR_common:
 							field.out_value,
 							field.in_value,
 							svf_para.dr_end_state);
+					printf("end_state = %X\n", svf_para.dr_end_state);
 				}
 
 				svf_buffer_index += (i + 7) >> 3;

@@ -210,22 +210,3 @@ int main(int argc, char **argv)
   my_command.ctx = global_cmd_ctx;
   handle_svf_command(&my_command);
 }
-
-#if 0
-  if (1)
-    {
-      uint8_t in_bits[] = {10};
-      uint8_t out_bits[] = {0};
-      struct jtag_tap *active = jtag_tap_by_position(0);
-      struct scan_field field = {
-		.num_bits = 6,
-		.out_value = out_bits,
-		.in_value = in_bits,
-	};
-      jtag_add_statemove(TAP_IRSHIFT);
-      jtag_add_ir_scan_noverify(active, &field, TAP_IRSHIFT);
-      jtag_execute_queue();
-      printf("IR capture = %X\n", *out_bits);
-    }
-  //  {TAP_IDLE, TAP_DRCAPTURE, TAP_DREXIT1, TAP_IRSELECT, TAP_DRSHIFT, TAP_IRSELECT, TAP_DRUPDATE, TAP_DRCAPTURE, TAP_DRSELECT, TAP_IRSHIFT, TAP_IRCAPTURE, TAP_IDLE};
-#endif
