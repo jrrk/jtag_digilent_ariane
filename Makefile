@@ -2,5 +2,5 @@ O = adapter.o commands.o core.o interface.o interfaces.o jtag/aice/aice_interfac
 
 CFLAGS = -g -I. -Ijtag -Ihelper -Ijimtcl -Ijtag/drivers/libjaylink -DHAVE_CONFIG_H -I/usr/include/libusb-1.0 -DBUILD_ULINK=0
 
-a.out: $O
-	$(CC) $(CFLAGS) $O -lusb-1.0
+jtag_digilent: $O
+	$(CC) -o $@ $(CFLAGS) $O -lusb-1.0

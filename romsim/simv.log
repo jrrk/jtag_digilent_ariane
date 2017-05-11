@@ -1,0 +1,24 @@
+
+Note-[RT_BS] Larger stack needed
+  Note: Bumping stack limit from 8192 to 8196 Kbytes.
+
+Chronologic VCS simulator copyright 1991-2016
+Contains Synopsys proprietary information.
+Compiler version L-2016.06_Full64; Runtime version L-2016.06_Full64;  May 11 13:51 2017
+d07fffff
+fffffff8
+0cb264ff
+c071c000
+06000071
+207ed90c
+001466db
+c036be7c
+71827f9e
+c40733ed
+8a00049c
+0000007d
+00000000
+           V C S   S i m u l a t i o n   R e p o r t 
+Time: 1050000000 ps
+CPU Time:      0.190 seconds;       Data structure size:   0.0Mb
+Thu May 11 13:51:22 2017
