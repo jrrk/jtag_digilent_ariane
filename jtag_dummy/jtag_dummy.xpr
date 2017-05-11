@@ -3,7 +3,7 @@
 <!--                                                         -->
 <!-- Copyright 1986-2016 Xilinx, Inc. All Rights Reserved.   -->
 
-<Project Version="7" Minor="14" Path="/home/jrrk2/code/jtag_digilent/jtag_dummy/jtag_dummy.xpr">
+<Project Version="7" Minor="14" Path="/local/scratch/jrrk2/jtag_digilent/jtag_dummy/jtag_dummy.xpr">
   <DefaultLaunch Dir="$PRUNDIR"/>
   <Configuration>
     <Option Name="Id" Val="69086dd1fb21436db766defa5876d05d"/>

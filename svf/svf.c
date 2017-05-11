@@ -397,6 +397,8 @@ COMMAND_HANDLER(handle_svf_command)
 		else if ((strcmp(CMD_ARGV[i],
 				  "ignore_error") == 0) || (strcmp(CMD_ARGV[i], "-ignore_error") == 0))
 			svf_ignore_error = 1;
+		else if ((strcmp(CMD_ARGV[i], "-") == 0))
+		        svf_fd = stdin;
 		else {
 			svf_fd = fopen(CMD_ARGV[i], "r");
 			if (svf_fd == NULL) {

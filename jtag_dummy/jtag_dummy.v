@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`default_nettype none
 //////////////////////////////////////////////////////////////////////////////////
 // Company: 
 // Engineer: 
@@ -20,15 +21,17 @@
 //////////////////////////////////////////////////////////////////////////////////
 
 
-module jtag_dummy(input clk_p, input rst_top,
-output [15:0] LED, input [15:0] i_dip,
+module jtag_dummy(input wire clk_p, input wire rst_top,
+output reg [15:0] LED, input wire [15:0] i_dip,
 output reg LED16_B, output reg LED16_G, output reg LED16_R,
 output reg LED17_B, output reg LED17_G, output reg LED17_R);
 
-parameter wid = 42;
+parameter wid = 64;
 parameter dataw = 32;
 
 reg [wid-1:0] SR;
+
+wire CAPTURE, DRCK, RESET, RUNTEST, SEL, SHIFT, TCK, TDI, TMS, UPDATE, TCK, jtag_clk;
 
    // BSCANE2: Boundary-Scan User Instruction
    //          Artix-7
@@ -56,73 +59,13 @@ reg [wid-1:0] SR;
 BUFG jtag_buf(.I(TCK), .O(jtag_clk));
 wire [31:0] DO, DOB;
 wire [3:0] DOP;
-reg [8:0] ADDR;
+reg [30:0] ADDR;
 reg [31:0] DI;
 wire [3:0] DIP = 4'b0;
-reg EN;
 wire CLK = jtag_clk;
-reg  WE;
+reg  RD, WR;
 wire SSR = 1'b0;
-reg [5:0] CNT, CNT2, OFF;
-
-always @(posedge jtag_clk)
-    begin
-    if (!rst_top)
-        begin
-        {LED16_R,LED16_G,LED16_B} = 0;
-        {LED17_R,LED17_G,LED17_B} = 0;
-        CNT = 0;
-        OFF = 0;
-        SR = 0;
-        WE = 0;
-        EN = 0;
-        DI = 0;
-        end
-    else if (SEL)
-        begin
-        EN = 1'b0;
-        if (CAPTURE)
-            begin
-            CNT2 = CNT;
-            CNT = 0;
-            WE = 1'b0;
-            EN = 1'b1;
-            LED16_R = ~LED16_R;
-            SR = {ADDR,DO};
-            end
-        if (SHIFT)
-            begin
-            SR = {TDI,SR[wid-1:1]};
-            CNT = CNT + 1;
-            if (CNT == wid)
-                    begin
-                    OFF = OFF + 1;
-                    ADDR = ADDR + 1;
-                    DI = SR[dataw-1:0];
-                    EN = 1'b1;
-                    CNT = 0;
-                    end
-            end
-        if (UPDATE)
-            begin
-            ADDR = SR[wid-2:dataw];
-            WE = SR[wid-1];
-            EN = 1'b1;
-            CNT2 = CNT;
-            CNT = 0;
-            LED17_R = ~LED17_R;
-            if (WE)
-                begin
-                DI = SR[dataw-1:0];
-                end            
-            else
-                begin
-                
-                end
-            end
-        end
-    end
-   // End of BSCANE2_inst instantiation
+reg [7:0] CNT, CNT2;
 
    RAMB16_S36_S36 #(
         // The following INIT_xx declarations specify the initial contents of the RAM
@@ -197,9 +140,9 @@ always @(posedge jtag_clk)
        .ADDRA(ADDR),    // Port A 14-bit Address wire
        .DIA(DI),   // Port A 32-bit Data wire
        .DIPA(DIP),   // Port A 32-bit Data wire
-       .ENA(EN),    // Port A RAM Enable wire
+       .ENA((RD|WR)&(0 == &ADDR[30:9])),    // Port A RAM Enable wire
        .SSRA(SSR),     // Port A Synchronous Set/Reset wire
-       .WEA(WE),         // Port A Write Enable wire
+       .WEA(WR),         // Port A Write Enable wire
        .CLKB(clk_p),      // Port A Clock
        .DOB(DOB),  // Port A 1-bit Data wire
        .DOPB(),
@@ -209,8 +152,64 @@ always @(posedge jtag_clk)
        .ENB(1'b1),    // Port A RAM Enable wire
        .SSRB(1'b0),     // Port A Synchronous Set/Reset wire
        .WEB(1'b0)         // Port A Write Enable wire
-   ); // 
+   );
+   
+always @(posedge jtag_clk)
+       begin
+       if (!rst_top)
+           begin
+           {LED16_R,LED16_G,LED16_B} = 0;
+           {LED17_R,LED17_G,LED17_B} = 0;
+           CNT = 0;
+           SR = 0;
+           WR = 0;
+           RD = 0;
+           DI = 0;
+           end
+       else if (SEL)
+           begin
+           WR = 0;
+           if (RD)
+               begin
+               SR = {ADDR,DO};
+               RD = 1'b0;
+               end
+           if (CAPTURE)
+               begin
+               CNT2 = CNT;
+               CNT = 0;
+               WR = 1'b0;
+               RD = 1'b1;
+               LED16_R = ~LED16_R;
+               end
+           if (SHIFT)
+               begin
+               SR = {TDI,SR[wid-1:1]};
+               CNT = CNT + 1;
+               end
+           if (UPDATE || (SHIFT && (CNT == wid)))
+               begin
+               ADDR = UPDATE ? SR[wid-2:dataw] : ADDR+1;
+               DI = SR[dataw-1:0];
+               WR = SR[wid-1];
+               RD = ~SR[wid-1];
+               CNT2 = CNT;
+               CNT = 0;
+               LED17_R = ~LED17_R;
+               end
+           end
+       end
+      // End of BSCANE2_inst instantiation
 
-assign LED = i_dip[15] ? {WE,CNT2,OFF} : (i_dip[0] ? DOB[31:16] : DOB[15:0]);
+always @(*) casez({i_dip[15:13],i_dip[0]})
+    4'b0000: LED = DOB[15:0];
+    4'b0001: LED = DOB[31:16];
+    4'b1000: LED = DI[15:0];
+    4'b1001: LED = DI[31:16];
+    4'b1010: LED = ADDR[15:0];
+    4'b1011: LED = ADDR[30:16];
+    4'b110?: LED = {CNT2,CNT};
+    4'b111?: LED = {CAPTURE, DRCK, RESET, RUNTEST, SEL, SHIFT, TCK, TDI, TMS, UPDATE, TCK};
+    endcase
 				
 endmodule
