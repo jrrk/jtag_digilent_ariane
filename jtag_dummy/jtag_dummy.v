@@ -7,7 +7,10 @@ output wire LED16_B, output wire LED16_G, output wire LED16_R,
 output wire LED17_B, output wire LED17_G, output wire LED17_R);
 
 wire CAPTURE, DRCK, RESET, RUNTEST, SEL, SHIFT, TDI, TDO, TMS, UPDATE, TCK, TCK_unbuf;
-
+wire CAPTURE2, DRCK2, RESET2, RUNTEST2, SEL2, SHIFT2, TDI2, TDO2, TMS2, UPDATE2, TCK2, TCK_unbuf2;
+   wire WR;
+   wire [31:0] ADDR;
+   
 BUFG jtag_buf(.I(TCK_unbuf), .O(TCK));
 
    // BSCANE2: Boundary-Scan User Instruction
@@ -33,6 +36,25 @@ BUFG jtag_buf(.I(TCK_unbuf), .O(TCK));
       .TDO(TDO)    // 1-bit input: Test Data Output (TDO) input for USER function.
    );
 
+   BSCANE2 #(
+      .JTAG_CHAIN(2)  // Value for USER command.
+   )
+   BSCANE2_inst2 (
+      .CAPTURE(CAPTURE2), // 1-bit output: CAPTURE output from TAP controller.
+      .DRCK(DRCK2),       // 1-bit output: Gated TCK output. When SEL is asserted, DRCK toggles when CAPTURE or
+                         // SHIFT are asserted.
+
+      .RESET(RESET2),     // 1-bit output: Reset output for TAP controller.
+      .RUNTEST(RUNTEST2), // 1-bit output: Output asserted when TAP controller is in Run Test/Idle state.
+      .SEL(SEL2),         // 1-bit output: USER instruction active output.
+      .SHIFT(SHIFT2),     // 1-bit output: SHIFT output from TAP controller.
+      .TCK(TCK_unbuf2),   // 1-bit output: Test Clock output. Fabric connection to TAP Clock pin.
+      .TDI(TDI2),         // 1-bit output: Test Data Input (TDI) output from TAP controller.
+      .TMS(TMS2),         // 1-bit output: Test Mode Select output. Fabric connection to TAP.
+      .UPDATE(UPDATE2),   // 1-bit output: UPDATE output from TAP controller
+      .TDO(TDO2)    // 1-bit input: Test Data Output (TDO) input for USER function.
+   );
+
 jtag_rom rom1(
 .clk_p(clk_p),
 .LED(LED),
@@ -43,6 +65,8 @@ jtag_rom rom1(
 .LED17_B(LED17_B),
 .LED17_G(LED17_G),
 .LED17_R(LED17_R),
+.WR(WR),
+.ADDR(ADDR),
 .TDO(TDO),	 
 .CAPTURE(CAPTURE), 
 .RESET(RESET), 
@@ -52,6 +76,21 @@ jtag_rom rom1(
 .TDI(TDI), 
 .TMS(TMS), 
 .UPDATE(UPDATE), 
+.TCK(TCK)
+);
+
+jtag_addr addr1(
+.WR(WR),
+.ADDR(ADDR),
+.TDO(TDO2),	 
+.CAPTURE(CAPTURE2), 
+.RESET(RESET2), 
+.RUNTEST(RUNTEST2), 
+.SEL(SEL2), 
+.SHIFT(SHIFT2), 
+.TDI(TDI2), 
+.TMS(TMS2), 
+.UPDATE(UPDATE2), 
 .TCK(TCK)
 );
 				

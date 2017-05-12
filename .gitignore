@@ -1,5 +1,5 @@
 *.o
-a.out
+jtag_digilent
 *~
 jtag_dummy.cache
 jtag_dummy.hw
