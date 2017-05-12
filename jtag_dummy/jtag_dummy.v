@@ -8,7 +8,7 @@ output wire LED17_B, output wire LED17_G, output wire LED17_R);
 
 wire CAPTURE, DRCK, RESET, RUNTEST, SEL, SHIFT, TDI, TDO, TMS, UPDATE, TCK, TCK_unbuf;
 wire CAPTURE2, DRCK2, RESET2, RUNTEST2, SEL2, SHIFT2, TDI2, TDO2, TMS2, UPDATE2, TCK2, TCK_unbuf2;
-   wire WR;
+   wire INC, WR;
    wire [31:0] ADDR;
    
 BUFG jtag_buf(.I(TCK_unbuf), .O(TCK));
@@ -65,6 +65,7 @@ jtag_rom rom1(
 .LED17_B(LED17_B),
 .LED17_G(LED17_G),
 .LED17_R(LED17_R),
+.INC(INC),
 .WR(WR),
 .ADDR(ADDR),
 .TDO(TDO),	 
@@ -80,6 +81,7 @@ jtag_rom rom1(
 );
 
 jtag_addr addr1(
+.INC(INC),
 .WR(WR),
 .ADDR(ADDR),
 .TDO(TDO2),	 

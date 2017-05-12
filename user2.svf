@@ -4,6 +4,34 @@ ENDDR IDLE;
 STATE RESET;
 STATE IDLE;
 FREQUENCY 1.00E+07 HZ;
+// select address reg
+SIR 6 TDI (03) ;
+// auto-inc off
+// SDR 34 TDI (000000000);
+// auto-inc on (addr=0x0)
+SDR 34 TDI (200000000);
+// select data reg
 SIR 6 TDI (02) ;
-//SDR 64 TDI (0);
-SDR 320 TDI (0000000000000000) TDO (003c071c000dead00020cb264ffdead0001fffffff8dead0000d07fffffdeaddead00000000beef) MASK (00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff);
+// readout 4 locations
+SDR 160 TDI (0) TDO (c071c0000cb264fffffffff8d07fffff00000000) MASK (ffffffffffffffffffffffffffffffffffffffff);
+// select address reg
+SIR 6 TDI (03) ;
+// auto-inc on (addr=0x8), write on
+SDR 34 TDI (300000008);
+// select data reg
+SIR 6 TDI (02) ;
+SDR 96 TDI (55aa55aadeadbeefc001f00d) TDO (deadbeefc001f00d00000000) MASK (ffffffffffffffff00000000);
+// select address reg
+SIR 6 TDI (03) ;
+// auto-inc on (addr=0x0)
+SDR 34 TDI (200000000);
+SIR 6 TDI (02) ;
+// readout 4 locations
+SDR 160 TDI (0) TDO (c071c0000cb264fffffffff8d07fffff00000000) MASK (ffffffffffffffffffffffffffffffffffffffff);
+// select address reg
+SIR 6 TDI (03) ;
+// auto-inc on (addr=0x8)
+SDR 34 TDI (200000008);
+SIR 6 TDI (02) ;
+// readout 4 locations
+SDR 160 TDI (0) TDO (0000007d8a00049cc40733ed71827f9e00000008) MASK (ffffffffffffffffffffffffffffffffffffffff);

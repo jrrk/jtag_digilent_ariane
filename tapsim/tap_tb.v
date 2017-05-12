@@ -3,9 +3,10 @@
 
 module tap_tb();
 
-   reg clk_p;
+   reg clk_p, INC, WR;
    wire [15:0] LED;
    reg [15:0]  i_dip;
+   reg [31:0]  ADDR;
    wire        LED16_B;
    wire        LED16_G;
    wire        LED16_R;
@@ -14,8 +15,8 @@ module tap_tb();
    wire        LED17_R;
 
    reg CAPTURE, RESET, RUNTEST, SEL, SHIFT, TDI, TMS, UPDATE;
-   reg [63:0] readout, readout2;
-   reg [5:0]  rcnt;
+   reg [31:0] readout, readout2;
+   reg [4:0]  rcnt;
    
    wire TDO, TCK;
 
@@ -36,6 +37,9 @@ initial
      TDI = 0;
      TMS = 0;
      UPDATE = 0;
+     ADDR = 0;
+     INC = 1;
+     WR = 0;
      #10000
        RESET = 0;
      @(negedge TCK)
@@ -56,9 +60,9 @@ always @(negedge TCK) if (SEL)
        end
      else if (SHIFT)
        begin
-	  if (rcnt == 63)
+	  if (&rcnt)
 	    readout2 = readout;
-	  readout = {TDO,readout[63:1]};
+	  readout = {TDO,readout[31:1]};
 	  rcnt = rcnt + 1;
        end
   end
@@ -75,6 +79,9 @@ jtag_rom rom1(
 .LED17_B(LED17_B),
 .LED17_G(LED17_G),
 .LED17_R(LED17_R),
+.INC(INC),
+.WR(WR),
+.ADDR(ADDR),
 .TDO(TDO),	 
 .CAPTURE(CAPTURE), 
 .RESET(RESET), 

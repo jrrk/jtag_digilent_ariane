@@ -1,5 +1,5 @@
 module jtag_rom(input wire clk_p,
-input wire WR, input wire [31:0] ADDR,
+input wire INC, input wire WR, input wire [31:0] ADDR,
 output reg [15:0] LED, input wire [15:0] i_dip,
 output reg LED16_B, output reg LED16_G, output reg LED16_R,
 output reg LED17_B, output reg LED17_G, output reg LED17_R,
@@ -12,15 +12,14 @@ reg [dataw-1:0] SR;
 
 wire [31:0] DO, DOB;
 wire [3:0] DOP;
-reg [30:0] ADDR;
-reg [31:0] DI;
+reg [31:0] DI, OFF;
 wire [3:0] DIP = 4'b0;
-reg  WREN;
+reg  WREN, INCEN;
 wire SSR = 1'b0;
-reg [7:0] CNT, CNT2;
+reg [7:0] CNT;
 
 assign TDO = SR[0];
-
+	     
    RAMB16_S36_S36 #(
         // The following INIT_xx declarations specify the initial contents of the RAM
         .INIT_00(256'hC036BE7C001466DB207ED90C06000071C071C0000CB264FFFFFFFFF8D07FFFFF),
@@ -91,12 +90,12 @@ assign TDO = SR[0];
        .CLKA(~TCK),      // Port A Clock
        .DOA(DO),  // Port A 1-bit Data wire
        .DOPA(DOP),
-       .ADDRA(ADDR[8:0]),    // Port A 14-bit Address wire
+       .ADDRA(OFF[8:0]),    // Port A 14-bit Address wire
        .DIA(DI),   // Port A 32-bit Data wire
        .DIPA(DIP),   // Port A 32-bit Data wire
-       .ENA(0 == &ADDR[31:9]),    // Port A RAM Enable wire
+       .ENA(0 == &OFF[31:9]),    // Port A RAM Enable wire
        .SSRA(SSR),     // Port A Synchronous Set/Reset wire
-       .WEA(WR&WREN),         // Port A Write Enable wire
+       .WEA(WREN),         // Port A Write Enable wire
        .CLKB(clk_p),      // Port A Clock
        .DOB(DOB),  // Port A 1-bit Data wire
        .DOPB(),
@@ -118,35 +117,42 @@ always @(posedge TCK)
            SR = 0;
            WREN = 0;
            DI = 0;
+	   OFF = 0;
+	   INCEN = 1'b0;
            end
        else if (SEL)
            begin
            if (CAPTURE)
                begin
-               CNT2 = CNT;
                CNT = 0;
-               SR = DO;
+               SR = ADDR;
+	       WREN = 1'b0;
+	       INCEN = 1'b0;
+	       OFF = ADDR;
                LED16_R = ~LED16_R;
                end
            if (UPDATE)
                begin
                   DI = SR[dataw-1:0];
                   WREN = WR;
-                  CNT2 = CNT;
+		  INCEN = 1'b0;
                   CNT = 0;
                   LED17_R = ~LED17_R;
                end
            if (SHIFT)
              begin
+		OFF = OFF + INCEN;
+		INCEN = 1'b0;
                 WREN = 1'b0;
                 SR = {TDI,SR[dataw-1:1]};
                 CNT = CNT + 1;
                 if (CNT == dataw)
                   begin
                      DI = SR;
-		     SR = DO;
+		     if (~WR)
+		       SR = DO;
                      WREN = WR;
-                     CNT2 = CNT;
+                     INCEN = INC;
                      CNT = 0;
                      LED17_R = ~LED17_R;
                   end
@@ -160,9 +166,9 @@ always @(*) casez({i_dip[15:13],i_dip[0]})
     4'b0001: LED = DOB[31:16];
     4'b1000: LED = DI[15:0];
     4'b1001: LED = DI[31:16];
-    4'b1010: LED = ADDR[15:0];
-    4'b1011: LED = ADDR[31:16];
-    4'b110?: LED = {CNT2,CNT};
+    4'b1010: LED = OFF[15:0];
+    4'b1011: LED = OFF[31:16];
+    4'b110?: LED = CNT;
     4'b111?: LED = {CAPTURE, RESET, RUNTEST, SEL, SHIFT, TDI, TMS, UPDATE};
     endcase
 
