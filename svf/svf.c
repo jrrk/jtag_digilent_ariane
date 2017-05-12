@@ -213,7 +213,7 @@ static int svf_check_tdo_para_index;
 static int svf_read_command_from_file(FILE *fd);
 static int svf_check_tdo(void);
 static int svf_add_check_para(uint8_t enabled, int buffer_offset, int bit_len);
-static int svf_run_command(struct command_context *cmd_ctx, char *cmd_str);
+static int svf_run_command(char command, char *argus[], int num_of_argu);
 static int svf_execute_tap(void);
 
 static FILE *svf_fd;
@@ -257,7 +257,7 @@ static void svf_hexbuf_print(int dbg_lvl, const char *file, unsigned line,
 	int msbits = bit_len % 8;
 
 	/* allocate 2 bytes per hex digit */
-	char *prbuf = malloc((byte_len * 2) + 2 + 1);
+	char *prbuf = malloc((byte_len * 3) + 2 + 1);
 	if (!prbuf)
 		return;
 
@@ -265,7 +265,7 @@ static void svf_hexbuf_print(int dbg_lvl, const char *file, unsigned line,
 	uint8_t msb = buf[byte_len - 1] & (msbits ? (1 << msbits) - 1 : 0xff);
 	len = sprintf(prbuf, msbits <= 4 ? "0x%01"PRIx8 : "0x%02"PRIx8, msb);
 	for (j = byte_len - 2; j >= 0; j--)
-		len += sprintf(prbuf + len, "%02"PRIx8, buf[j]);
+	  len += sprintf(prbuf + len, "%s%02"PRIx8, ((j&3)==3)?":":"", buf[j]);
 
 	log_printf_lf(dbg_lvl, file, line, function, "%8s = %s", desc ? desc : " ", prbuf);
 
@@ -353,6 +353,52 @@ int svf_add_statemove(tap_state_t state_to)
 	}
 	LOG_ERROR("SVF: can not move to %s", tap_state_name(state_to));
 	return ERROR_FAIL;
+}
+
+static int svf_parse_cmd_string(char *str, int len, char **argus, int *num_of_argu)
+{
+	int pos = 0, num = 0, space_found = 1, in_bracket = 0;
+
+	while (pos < len) {
+		switch (str[pos]) {
+			case '!':
+			case '/':
+				LOG_ERROR("fail to parse svf command");
+				return ERROR_FAIL;
+			case '(':
+				in_bracket = 1;
+				goto parse_char;
+			case ')':
+				in_bracket = 0;
+				goto parse_char;
+			default:
+parse_char:
+				if (!in_bracket && isspace((int) str[pos])) {
+					space_found = 1;
+					str[pos] = '\0';
+				} else if (space_found) {
+					argus[num++] = &str[pos];
+					space_found = 0;
+				}
+				break;
+		}
+		pos++;
+	}
+
+	*num_of_argu = num;
+
+	return ERROR_OK;
+}
+
+static int svf_find_string_in_array(char *str, char **strs, int num_of_element)
+{
+	int i;
+
+	for (i = 0; i < num_of_element; i++) {
+		if (!strcmp(str, strs[i]))
+			return i;
+	}
+	return 0xFF;
 }
 
 COMMAND_HANDLER(handle_svf_command)
@@ -515,11 +561,30 @@ COMMAND_HANDLER(handle_svf_command)
 			} else
 				LOG_USER_N("%s", svf_read_line);
 		}
-		/* Run Command */
-		if (ERROR_OK != svf_run_command(CMD_CTX, svf_command_buffer)) {
-			LOG_ERROR("fail to run command at line %d", svf_line_number);
-			ret = ERROR_FAIL;
-			break;
+		
+		    {
+		      char command;
+		      char *argus[256];
+		      int num_of_argu = 0, i;
+		    /* Parse Command */
+		      if (ERROR_OK != svf_parse_cmd_string(svf_command_buffer, strlen(svf_command_buffer), argus, &num_of_argu)) {
+			    LOG_ERROR("fail to run command at line %d", svf_line_number);
+			    ret = ERROR_FAIL;
+		      }
+
+		    /* NOTE: we're a bit loose here, because we ignore case in
+		     * TAP state names (instead of insisting on uppercase).
+		     */
+
+		    command = svf_find_string_in_array(argus[0],
+			    (char **)svf_command_name, ARRAY_SIZE(svf_command_name));
+
+		    /* Run Command */
+		    if (ERROR_OK != svf_run_command(command, argus, num_of_argu)) {
+			    LOG_ERROR("fail to run command at line %d", svf_line_number);
+			    ret = ERROR_FAIL;
+			    break;
+		    }
 		}
 		command_num++;
 	}
@@ -711,56 +776,10 @@ static int svf_read_command_from_file(FILE *fd)
 		return ERROR_FAIL;
 }
 
-static int svf_parse_cmd_string(char *str, int len, char **argus, int *num_of_argu)
-{
-	int pos = 0, num = 0, space_found = 1, in_bracket = 0;
-
-	while (pos < len) {
-		switch (str[pos]) {
-			case '!':
-			case '/':
-				LOG_ERROR("fail to parse svf command");
-				return ERROR_FAIL;
-			case '(':
-				in_bracket = 1;
-				goto parse_char;
-			case ')':
-				in_bracket = 0;
-				goto parse_char;
-			default:
-parse_char:
-				if (!in_bracket && isspace((int) str[pos])) {
-					space_found = 1;
-					str[pos] = '\0';
-				} else if (space_found) {
-					argus[num++] = &str[pos];
-					space_found = 0;
-				}
-				break;
-		}
-		pos++;
-	}
-
-	*num_of_argu = num;
-
-	return ERROR_OK;
-}
-
 bool svf_tap_state_is_stable(tap_state_t state)
 {
 	return (TAP_RESET == state) || (TAP_IDLE == state)
 			|| (TAP_DRPAUSE == state) || (TAP_IRPAUSE == state);
-}
-
-static int svf_find_string_in_array(char *str, char **strs, int num_of_element)
-{
-	int i;
-
-	for (i = 0; i < num_of_element; i++) {
-		if (!strcmp(str, strs[i]))
-			return i;
-	}
-	return 0xFF;
 }
 
 static int svf_adjust_array_length(uint8_t **arr, int orig_bit_len, int new_bit_len)
@@ -860,7 +879,7 @@ static int svf_copy_hexstring_to_binary(char *str, uint8_t **bin, int orig_bit_l
 
 static int svf_check_tdo(void)
 {
-	int i, len, index_var;
+  int i, len, index_var, svf_verbose = 1;
 
 	for (i = 0; i < svf_check_tdo_para_index; i++) {
 		index_var = svf_check_tdo_para[i].buffer_offset;
@@ -878,7 +897,8 @@ static int svf_check_tdo(void)
 				return ERROR_FAIL;
 			else
 				svf_ignore_error++;
-		}
+		} else if (svf_verbose)
+			SVF_BUF_LOG(USER, &svf_tdi_buffer[index_var], len, "READ");
 	}
 	svf_check_tdo_para_index = 0;
 
@@ -913,10 +933,9 @@ static int svf_execute_tap(void)
 	return ERROR_OK;
 }
 
-static int svf_run_command(struct command_context *cmd_ctx, char *cmd_str)
+static int svf_run_command(char command, char *argus[], int num_of_argu)
 {
-	char *argus[256], command;
-	int num_of_argu = 0, i;
+	int i;
 
 	/* tmp variable */
 	int i_tmp;
@@ -933,15 +952,6 @@ static int svf_run_command(struct command_context *cmd_ctx, char *cmd_str)
 	/* flag padding commands skipped due to -tap command */
 	int padding_command_skipped = 0;
 
-	if (ERROR_OK != svf_parse_cmd_string(cmd_str, strlen(cmd_str), argus, &num_of_argu))
-		return ERROR_FAIL;
-
-	/* NOTE: we're a bit loose here, because we ignore case in
-	 * TAP state names (instead of insisting on uppercase).
-	 */
-
-	command = svf_find_string_in_array(argus[0],
-			(char **)svf_command_name, ARRAY_SIZE(svf_command_name));
 	switch (command) {
 		case ENDDR:
 		case ENDIR:
@@ -986,10 +996,9 @@ static int svf_run_command(struct command_context *cmd_ctx, char *cmd_str)
 				svf_para.frequency = atof(argus[1]);
 				/* TODO: set jtag speed to */
 				if (svf_para.frequency > 0) {
-					command_run_linef(cmd_ctx,
-							"adapter_khz %d",
-							(int)svf_para.frequency / 1000);
-					LOG_DEBUG("\tfrequency = %f", svf_para.frequency);
+				  if (ERROR_OK != jtag_config_khz(svf_para.frequency / 1000))
+				    return ERROR_FAIL;
+				  LOG_DEBUG("\tfrequency = %f", svf_para.frequency);
 				}
 			}
 			break;
