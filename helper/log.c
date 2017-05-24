@@ -40,7 +40,7 @@
 #endif
 #endif
 
-int debug_level = -1;
+int debug_level = LOG_LVL_DEBUG;
 
 static FILE *log_output;
 static struct log_callback *log_callbacks;

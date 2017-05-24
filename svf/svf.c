@@ -32,24 +32,7 @@
 #include <jtag/jtag.h>
 #include "svf.h"
 #include <helper/time_support.h>
-
-/* SVF command */
-enum svf_command {
-	ENDDR,
-	ENDIR,
-	FREQUENCY,
-	HDR,
-	HIR,
-	PIO,
-	PIOMAP,
-	RUNTEST,
-	SDR,
-	SIR,
-	STATE,
-	TDR,
-	TIR,
-	TRST,
-};
+#include <helper/command.h>
 
 static const char *svf_command_name[14] = {
 	"ENDDR",
@@ -213,7 +196,7 @@ static int svf_check_tdo_para_index;
 static int svf_read_command_from_file(FILE *fd);
 static int svf_check_tdo(void);
 static int svf_add_check_para(uint8_t enabled, int buffer_offset, int bit_len);
-static int svf_run_command(char command, char *argus[], int num_of_argu);
+static int svf_run_command(enum svf_command command, char *argus[], int num_of_argu, uint32_t **rslt);
 static int svf_execute_tap(void);
 
 static FILE *svf_fd;
@@ -245,8 +228,12 @@ static int svf_last_printed_percentage = -1;
  * macro is used to print the svf hex buffer at desired debug level
  * DEBUG, INFO, ERROR, USER
  */
-#define SVF_BUF_LOG(_lvl, _buf, _nbits, _desc)							\
+#ifdef SVF_VERBOSE
+#define SVF_BUF_LOG(_lvl, _buf, _nbits, _desc)				\
 	svf_hexbuf_print(LOG_LVL_##_lvl ,  __FILE__, __LINE__, __func__, _buf, _nbits, _desc)
+#else
+#define SVF_BUF_LOG(_lvl, _buf, _nbits, _desc)
+#endif
 
 static void svf_hexbuf_print(int dbg_lvl, const char *file, unsigned line,
 							 const char *function, const uint8_t *buf,
@@ -270,6 +257,29 @@ static void svf_hexbuf_print(int dbg_lvl, const char *file, unsigned line,
 	log_printf_lf(dbg_lvl, file, line, function, "%8s = %s", desc ? desc : " ", prbuf);
 
 	free(prbuf);
+}
+
+static uint32_t *svf_hexbuf_cnv(const uint8_t *buf, int bit_len)
+{
+  int j;
+  int byte_len = DIV_ROUND_UP(bit_len, 8);
+  int msbits = bit_len % 8;
+  int cnt = DIV_ROUND_UP(byte_len, 4);
+  uint32_t *rslt = (uint32_t *)calloc(sizeof(uint32_t), cnt);
+  /* print correct number of bytes, mask excess bits where applicable */
+  uint32_t msb = buf[byte_len - 1] & (msbits ? (1 << msbits) - 1 : 0xff);
+  for (j = byte_len - 2; j >= 0; j--)
+    {
+      if ((j&3)==3)
+	{
+	  rslt[--cnt] = msb;
+	  msb = 0;
+	}
+      msb = (msb << 8) | buf[j];
+    }
+  rslt[--cnt] = msb;
+  assert(cnt==0);
+  return rslt;
 }
 
 static int svf_realloc_buffers(size_t len)
@@ -401,6 +411,76 @@ static int svf_find_string_in_array(char *str, char **strs, int num_of_element)
 	return 0xFF;
 }
 
+int svf_free(void)
+{
+
+	/* free buffers */
+	if (svf_command_buffer) {
+		free(svf_command_buffer);
+		svf_command_buffer = NULL;
+		svf_command_buffer_size = 0;
+	}
+	if (svf_check_tdo_para) {
+		free(svf_check_tdo_para);
+		svf_check_tdo_para = NULL;
+		svf_check_tdo_para_index = 0;
+	}
+	if (svf_tdi_buffer) {
+		free(svf_tdi_buffer);
+		svf_tdi_buffer = NULL;
+	}
+	if (svf_tdo_buffer) {
+		free(svf_tdo_buffer);
+		svf_tdo_buffer = NULL;
+	}
+	if (svf_mask_buffer) {
+		free(svf_mask_buffer);
+		svf_mask_buffer = NULL;
+	}
+	svf_buffer_index = 0;
+	svf_buffer_size = 0;
+
+	svf_free_xxd_para(&svf_para.hdr_para);
+	svf_free_xxd_para(&svf_para.hir_para);
+	svf_free_xxd_para(&svf_para.tdr_para);
+	svf_free_xxd_para(&svf_para.tir_para);
+	svf_free_xxd_para(&svf_para.sdr_para);
+	svf_free_xxd_para(&svf_para.sir_para);
+}
+
+int svf_init(void)
+{
+  /* init */
+  svf_line_number = 0;
+  svf_command_buffer_size = 0;
+  
+  svf_check_tdo_para_index = 0;
+  svf_check_tdo_para = malloc(sizeof(struct svf_check_tdo_para) * SVF_CHECK_TDO_PARA_SIZE);
+  if (NULL == svf_check_tdo_para) {
+    LOG_ERROR("not enough memory");
+    return ERROR_FAIL;
+  }
+  
+  svf_buffer_index = 0;
+  /* double the buffer size */
+  /* in case current command cannot be committed, and next command is a bit scan command */
+  /* here is 32K bits for this big scan command, it should be enough */
+  /* buffer will be reallocated if buffer size is not enough */
+  if (svf_realloc_buffers(2 * SVF_MAX_BUFFER_SIZE_TO_COMMIT) != ERROR_OK) {
+    return ERROR_FAIL;
+  }
+  
+  memcpy(&svf_para, &svf_para_init, sizeof(svf_para));
+  
+  if (!svf_nil) {
+    /* TAP_RESET */
+    jtag_add_tlr();
+  }
+
+  return ERROR_OK;
+  
+}
+
 COMMAND_HANDLER(handle_svf_command)
 {
 #define SVF_MIN_NUM_OF_OPTIONS 1
@@ -463,35 +543,9 @@ COMMAND_HANDLER(handle_svf_command)
 	/* get time */
 	time_measure_ms = timeval_ms();
 
-	/* init */
-	svf_line_number = 0;
-	svf_command_buffer_size = 0;
-
-	svf_check_tdo_para_index = 0;
-	svf_check_tdo_para = malloc(sizeof(struct svf_check_tdo_para) * SVF_CHECK_TDO_PARA_SIZE);
-	if (NULL == svf_check_tdo_para) {
-		LOG_ERROR("not enough memory");
-		ret = ERROR_FAIL;
-		goto free_all;
-	}
-
-	svf_buffer_index = 0;
-	/* double the buffer size */
-	/* in case current command cannot be committed, and next command is a bit scan command */
-	/* here is 32K bits for this big scan command, it should be enough */
-	/* buffer will be reallocated if buffer size is not enough */
-	if (svf_realloc_buffers(2 * SVF_MAX_BUFFER_SIZE_TO_COMMIT) != ERROR_OK) {
-		ret = ERROR_FAIL;
-		goto free_all;
-	}
-
-	memcpy(&svf_para, &svf_para_init, sizeof(svf_para));
-
-	if (!svf_nil) {
-		/* TAP_RESET */
-		jtag_add_tlr();
-	}
-
+	if (ERROR_OK != svf_init())
+	  goto free_all;
+	
 	if (tap) {
 		/* Tap is specified, set header/trailer paddings */
 		int header_ir_len = 0, header_dr_len = 0, trailer_ir_len = 0, trailer_dr_len = 0;
@@ -563,9 +617,10 @@ COMMAND_HANDLER(handle_svf_command)
 		}
 		
 		    {
-		      char command;
+		      enum svf_command command;
 		      char *argus[256];
-		      int num_of_argu = 0, i;
+		      int num_of_argu = 0, i, j;
+		      uint32_t *rslt;
 		    /* Parse Command */
 		      if (ERROR_OK != svf_parse_cmd_string(svf_command_buffer, strlen(svf_command_buffer), argus, &num_of_argu)) {
 			    LOG_ERROR("fail to run command at line %d", svf_line_number);
@@ -580,7 +635,7 @@ COMMAND_HANDLER(handle_svf_command)
 			    (char **)svf_command_name, ARRAY_SIZE(svf_command_name));
 
 		    /* Run Command */
-		    if (ERROR_OK != svf_run_command(command, argus, num_of_argu)) {
+		    if (ERROR_OK != svf_run_command(command, argus, num_of_argu, &rslt)) {
 			    LOG_ERROR("fail to run command at line %d", svf_line_number);
 			    ret = ERROR_FAIL;
 			    break;
@@ -611,40 +666,8 @@ free_all:
 
 	fclose(svf_fd);
 	svf_fd = 0;
-
-	/* free buffers */
-	if (svf_command_buffer) {
-		free(svf_command_buffer);
-		svf_command_buffer = NULL;
-		svf_command_buffer_size = 0;
-	}
-	if (svf_check_tdo_para) {
-		free(svf_check_tdo_para);
-		svf_check_tdo_para = NULL;
-		svf_check_tdo_para_index = 0;
-	}
-	if (svf_tdi_buffer) {
-		free(svf_tdi_buffer);
-		svf_tdi_buffer = NULL;
-	}
-	if (svf_tdo_buffer) {
-		free(svf_tdo_buffer);
-		svf_tdo_buffer = NULL;
-	}
-	if (svf_mask_buffer) {
-		free(svf_mask_buffer);
-		svf_mask_buffer = NULL;
-	}
-	svf_buffer_index = 0;
-	svf_buffer_size = 0;
-
-	svf_free_xxd_para(&svf_para.hdr_para);
-	svf_free_xxd_para(&svf_para.hir_para);
-	svf_free_xxd_para(&svf_para.tdr_para);
-	svf_free_xxd_para(&svf_para.tir_para);
-	svf_free_xxd_para(&svf_para.sdr_para);
-	svf_free_xxd_para(&svf_para.sir_para);
-
+	svf_free();
+	
 	if (ERROR_OK == ret)
 		command_print(CMD_CTX,
 			      "svf file programmed %s for %d commands with %d errors",
@@ -933,7 +956,7 @@ static int svf_execute_tap(void)
 	return ERROR_OK;
 }
 
-static int svf_run_command(char command, char *argus[], int num_of_argu)
+static int svf_run_command(enum svf_command command, char *argus[], int num_of_argu, uint32_t **rslt)
 {
 	int i;
 
@@ -951,7 +974,8 @@ static int svf_run_command(char command, char *argus[], int num_of_argu)
 	tap_state_t *path = NULL, state;
 	/* flag padding commands skipped due to -tap command */
 	int padding_command_skipped = 0;
-
+	*rslt = NULL;
+	
 	switch (command) {
 		case ENDDR:
 		case ENDIR:
@@ -974,13 +998,13 @@ static int svf_run_command(char command, char *argus[], int num_of_argu)
 				}
 			} else {
 				LOG_ERROR("%s: %s is not a stable state",
-						argus[0], argus[1]);
+						svf_command_name[command], argus[1]);
 				return ERROR_FAIL;
 			}
 			break;
 		case FREQUENCY:
 			if ((num_of_argu != 1) && (num_of_argu != 3)) {
-				LOG_ERROR("invalid parameter of %s", argus[0]);
+				LOG_ERROR("invalid parameter of %s", svf_command_name[command]);
 				return ERROR_FAIL;
 			}
 			if (1 == num_of_argu) {
@@ -1039,7 +1063,7 @@ static int svf_run_command(char command, char *argus[], int num_of_argu)
 XXR_common:
 			/* XXR length [TDI (tdi)] [TDO (tdo)][MASK (mask)] [SMASK (smask)] */
 			if ((num_of_argu > 10) || (num_of_argu % 2)) {
-				LOG_ERROR("invalid parameter of %s", argus[0]);
+				LOG_ERROR("invalid parameter of %s", svf_command_name[command]);
 				return ERROR_FAIL;
 			}
 			i_tmp = xxr_para_tmp->len;
@@ -1324,7 +1348,7 @@ XXR_common:
 			/* RUNTEST [run_state] min_time SEC [MAXIMUM max_time SEC] [ENDSTATE
 			 * end_state] */
 			if ((num_of_argu < 3) && (num_of_argu > 11)) {
-				LOG_ERROR("invalid parameter of %s", argus[0]);
+				LOG_ERROR("invalid parameter of %s", svf_command_name[command]);
 				return ERROR_FAIL;
 			}
 			/* init */
@@ -1345,7 +1369,7 @@ XXR_common:
 					LOG_DEBUG("\trun_state = %s", tap_state_name(i_tmp));
 					i++;
 				} else {
-					LOG_ERROR("%s: %s is not a stable state", argus[0], tap_state_name(i_tmp));
+					LOG_ERROR("%s: %s is not a stable state", svf_command_name[command], tap_state_name(i_tmp));
 					return ERROR_FAIL;
 				}
 			}
@@ -1384,7 +1408,7 @@ XXR_common:
 					svf_para.runtest_end_state = i_tmp;
 					LOG_DEBUG("\tend_state = %s", tap_state_name(i_tmp));
 				} else {
-					LOG_ERROR("%s: %s is not a stable state", argus[0], tap_state_name(i_tmp));
+					LOG_ERROR("%s: %s is not a stable state", svf_command_name[command], tap_state_name(i_tmp));
 					return ERROR_FAIL;
 				}
 				i += 2;
@@ -1435,7 +1459,7 @@ XXR_common:
 		case STATE:
 			/* STATE [pathstate1 [pathstate2 ...[pathstaten]]] stable_state */
 			if (num_of_argu < 2) {
-				LOG_ERROR("invalid parameter of %s", argus[0]);
+				LOG_ERROR("invalid parameter of %s", svf_command_name[command]);
 				return ERROR_FAIL;
 			}
 			if (num_of_argu > 2) {
@@ -1450,7 +1474,7 @@ XXR_common:
 				for (i = 0; i < num_of_argu; i++, i_tmp++) {
 					path[i] = tap_state_by_name(argus[i_tmp]);
 					if (path[i] == TAP_INVALID) {
-						LOG_ERROR("%s: %s is not a valid state", argus[0], argus[i_tmp]);
+						LOG_ERROR("%s: %s is not a valid state", svf_command_name[command], argus[i_tmp]);
 						free(path);
 						return ERROR_FAIL;
 					}
@@ -1477,7 +1501,7 @@ XXR_common:
 								tap_state_name(path[num_of_argu - 1]));
 					} else {
 						LOG_ERROR("%s: %s is not a stable state",
-								argus[0],
+								svf_command_name[command],
 								tap_state_name(path[num_of_argu - 1]));
 						free(path);
 						return ERROR_FAIL;
@@ -1504,7 +1528,7 @@ XXR_common:
 		case TRST:
 			/* TRST trst_mode */
 			if (num_of_argu != 2) {
-				LOG_ERROR("invalid parameter of %s", argus[0]);
+				LOG_ERROR("invalid parameter of %s", svf_command_name[command]);
 				return ERROR_FAIL;
 			}
 			if (svf_para.trst_mode != TRST_ABSENT) {
@@ -1537,7 +1561,7 @@ XXR_common:
 			}
 			break;
 		default:
-			LOG_ERROR("invalid svf command: %s", argus[0]);
+			LOG_ERROR("invalid svf command: %s", svf_command_name[command]);
 			return ERROR_FAIL;
 			break;
 	}
@@ -1557,7 +1581,8 @@ XXR_common:
 
 			/* output debug info */
 			if ((SIR == command) || (SDR == command)) {
-				SVF_BUF_LOG(DEBUG, svf_tdi_buffer, svf_check_tdo_para[0].bit_len, "TDO read");
+			  *rslt = svf_hexbuf_cnv(svf_tdi_buffer, svf_check_tdo_para->bit_len);
+			  SVF_BUF_LOG(DEBUG, svf_tdi_buffer, svf_check_tdo_para[0].bit_len, "TDO read");
 			}
 		}
 	} else {
@@ -1587,4 +1612,34 @@ static const struct command_registration svf_command_handlers[] = {
 int svf_register_commands(struct command_context *cmd_ctx)
 {
 	return register_commands(cmd_ctx, NULL, svf_command_handlers);
+}
+
+uint32_t *my_svf(enum svf_command command, ...)
+{
+  static char *argus[256];
+  int num_of_argu = 1;
+  va_list ap;
+  char c, *s;
+  uint32_t *rslt = NULL;
+  int ignore = svf_ignore_error;
+  svf_ignore_error = 1;
+  *argus = (char *)svf_command_name[command];
+  va_start(ap, command);
+  do {
+    s = va_arg(ap, char *);
+    if (s) argus[num_of_argu++] = s ? strdup(s) : s;
+  } while (s);
+  va_end(ap);
+  if (ERROR_OK != svf_run_command(command, argus, num_of_argu, &rslt)) {
+    LOG_ERROR("fail to run command at line %d", svf_line_number);
+    rslt = NULL;
+  }
+  while (--num_of_argu) free(argus[num_of_argu]);
+  svf_ignore_error = ignore;
+  return rslt;
+}
+
+int rslt_len(void)
+{
+return  DIV_ROUND_UP(svf_check_tdo_para->bit_len, 32);
 }

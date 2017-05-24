@@ -94,6 +94,9 @@ struct target *get_current_target(struct command_context *cmd_ctx)
   const char *argv9[] = {"10000", NULL};
   const char *argv10[] = {NULL};
   log_init();
+  jtag_constructor();
+  aice_constructor();
+  swd_constructor();
   context.interp = Jim_CreateInterp();
   my_command.ctx = global_cmd_ctx;
   my_command.current = &current;
@@ -201,12 +204,56 @@ struct target *get_current_target(struct command_context *cmd_ctx)
   return 0;
 }
 
-int main(int argc, char **argv)
+void show_tdo(uint32_t *rslt)
+{
+  int j;
+  if (rslt) for (j = rslt_len(); j--; )
+	      printf("%.8X%c", rslt[j], j?':':'\n');
+}
+
+void my_jtag(void)
+{
+  uint32_t *rslt;
+  svf_init();
+  my_svf(TRST, "OFF", NULL);
+  my_svf(ENDIR, "IDLE", NULL);
+  my_svf(ENDDR, "IDLE", NULL);
+  my_svf(STATE, "RESET", NULL);
+  my_svf(STATE, "IDLE", NULL);
+  my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
+  // select address reg
+  my_svf(SIR, "6", "TDI", "(03)", NULL);
+  // auto-inc on
+  my_svf(SDR, "40", "TDI", "(1200000040)", NULL);
+  // select data reg
+  my_svf(SIR, "6", "TDI", "(02)", NULL);
+  // readout 4 locations
+  rslt = my_svf(SDR, "160", "TDI", "(0)", "TDO", "(C071C0000CB264FFFFFFFFF8D07FFFFF00000000)", "MASK", "(FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)", NULL);
+  show_tdo(rslt);
+  // readout more locations
+  my_svf(SDR, "320", "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
+  // readout more locations
+  my_svf(SDR, "640", "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
+  // readout more locations
+  my_svf(SDR, "1280", "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
+  // readout more locations
+  my_svf(SDR, "65536", "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
+  svf_free();
+}
+
+int main(int argc, const char **argv)
 {
   my_command_init();
-  my_command.name = "svf";
-  my_command.argc = --argc;
-  my_command.argv = ++argv;
-  my_command.ctx = global_cmd_ctx;
-  handle_svf_command(&my_command);
+  if (argc > 1)
+   {
+     my_command.name = "svf";
+     my_command.argc = --argc;
+     my_command.argv = ++argv;
+     my_command.ctx = global_cmd_ctx;
+     handle_svf_command(&my_command);
+   }
+ else
+   {
+     my_jtag();
+   }
 }

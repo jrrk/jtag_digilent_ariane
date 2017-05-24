@@ -436,8 +436,7 @@ static struct transport swd_transport = {
 	.init = swd_init,
 };
 
-static void swd_constructor(void) __attribute__((constructor));
-static void swd_constructor(void)
+void swd_constructor(void)
 {
 	transport_register(&swd_transport);
 }

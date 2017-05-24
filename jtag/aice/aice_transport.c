@@ -377,8 +377,7 @@ static struct transport aice_jtag_transport = {
 
 const char *aice_transports[] = { "aice_jtag", NULL };
 
-static void aice_constructor(void) __attribute__((constructor));
-static void aice_constructor(void)
+void aice_constructor(void)
 {
 	transport_register(&aice_jtag_transport);
 }

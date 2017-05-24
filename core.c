@@ -1786,8 +1786,7 @@ static struct transport jtag_transport = {
 	.init = jtag_init,
 };
 
-static void jtag_constructor(void) __attribute__((constructor));
-static void jtag_constructor(void)
+void jtag_constructor(void)
 {
 	transport_register(&jtag_transport);
 }

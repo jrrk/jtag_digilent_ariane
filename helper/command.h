@@ -22,6 +22,7 @@
 #ifndef OPENOCD_HELPER_COMMAND_H
 #define OPENOCD_HELPER_COMMAND_H
 
+#include <stdarg.h>
 #include <jim-nvp.h>
 
 /* To achieve C99 printf compatibility in MinGW, gnu_printf should be
@@ -32,6 +33,25 @@
 #else
 #define PRINTF_ATTRIBUTE_FORMAT printf
 #endif
+
+
+/* SVF command */
+enum svf_command {
+	ENDDR,
+	ENDIR,
+	FREQUENCY,
+	HDR,
+	HIR,
+	PIO,
+	PIOMAP,
+	RUNTEST,
+	SDR,
+	SIR,
+	STATE,
+	TDR,
+	TIR,
+	TRST,
+};
 
 enum command_mode {
 	COMMAND_EXEC,
@@ -332,6 +352,64 @@ __attribute__ ((format (PRINTF_ATTRIBUTE_FORMAT, 2, 3)));
 void command_output_text(struct command_context *context, const char *data);
 
 void process_jim_events(struct command_context *cmd_ctx);
+
+int aice_handle_aice_adapter_command(struct command_invocation *cmd);
+int aice_handle_aice_count_to_check_dbger_command(struct command_invocation *cmd);
+int aice_handle_aice_custom_restart_script_command(struct command_invocation *cmd);
+int aice_handle_aice_custom_srst_script_command(struct command_invocation *cmd);
+int aice_handle_aice_custom_trst_script_command(struct command_invocation *cmd);
+int aice_handle_aice_desc_command(struct command_invocation *cmd);
+int aice_handle_aice_info_command(struct command_invocation *cmd);
+int aice_handle_aice_port_command(struct command_invocation *cmd);
+int aice_handle_aice_reset_command(struct command_invocation *cmd);
+int aice_handle_aice_retry_times_command(struct command_invocation *cmd);
+int aice_handle_aice_serial_command(struct command_invocation *cmd);
+int aice_handle_aice_vid_pid_command(struct command_invocation *cmd);
+int ftdi_handle_channel_command(struct command_invocation *cmd);
+int ftdi_handle_device_desc_command(struct command_invocation *cmd);
+int ftdi_handle_get_signal_command(struct command_invocation *cmd);
+int ftdi_handle_layout_init_command(struct command_invocation *cmd);
+int ftdi_handle_layout_signal_command(struct command_invocation *cmd);
+int ftdi_handle_location_command(struct command_invocation *cmd);
+int ftdi_handle_serial_command(struct command_invocation *cmd);
+int ftdi_handle_set_signal_command(struct command_invocation *cmd);
+int ftdi_handle_tdo_sample_edge_command(struct command_invocation *cmd);
+int ftdi_handle_vid_pid_command(struct command_invocation *cmd);
+int handle_adapter_khz_command(struct command_invocation *cmd);
+int handle_adapter_nsrst_assert_width_command(struct command_invocation *cmd);
+int handle_adapter_nsrst_delay_command(struct command_invocation *cmd);
+int handle_aice_init_command(struct command_invocation *cmd);
+int handle_debug_level_command(struct command_invocation *cmd);
+int handle_help_add_command(struct command_invocation *cmd);
+int handle_help_command(struct command_invocation *cmd);
+int handle_interface_command(struct command_invocation *cmd);
+int handle_interface_list_command(struct command_invocation *cmd);
+int handle_irscan_command(struct command_invocation *cmd);
+int handle_jtag_init_command(struct command_invocation *cmd);
+int handle_jtag_ntrst_assert_width_command(struct command_invocation *cmd);
+int handle_jtag_ntrst_delay_command(struct command_invocation *cmd);
+int handle_jtag_rclk_command(struct command_invocation *cmd);
+int handle_jtag_reset_command(struct command_invocation *cmd);
+int handle_log_output_command(struct command_invocation *cmd);
+int handle_reset_config_command(struct command_invocation *cmd);
+int handle_runtest_command(struct command_invocation *cmd);
+int handle_scan_chain_command(struct command_invocation *cmd);
+int handle_sleep_command(struct command_invocation *cmd);
+int handle_svf_command(struct command_invocation *cmd);
+int handle_tms_sequence_command(struct command_invocation *cmd);
+int handle_verify_ircapture_command(struct command_invocation *cmd);
+int handle_verify_jtag_command(struct command_invocation *cmd);
+int handle_xsvf_command(struct command_invocation *cmd);
+int opendous_handle_opendous_hw_jtag_command(struct command_invocation *cmd);
+int opendous_handle_opendous_info_command(struct command_invocation *cmd);
+int opendous_handle_opendous_type_command(struct command_invocation *cmd);
+void aice_constructor(void);
+void jtag_constructor(void);
+void swd_constructor(void);
+uint32_t *my_svf(enum svf_command command, ...);
+int svf_init(void);
+int svf_free(void);
+int rslt_len(void);
 
 #define ERROR_COMMAND_CLOSE_CONNECTION		(-600)
 #define ERROR_COMMAND_SYNTAX_ERROR			(-601)
