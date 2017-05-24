@@ -213,6 +213,7 @@ void show_tdo(uint32_t *rslt)
 
 void my_jtag(void)
 {
+  int i;
   uint32_t *rslt;
   svf_init();
   my_svf(TRST, "OFF", NULL);
@@ -227,17 +228,17 @@ void my_jtag(void)
   my_svf(SDR, "40", "TDI", "(1200000040)", NULL);
   // select data reg
   my_svf(SIR, "6", "TDI", "(02)", NULL);
-  // readout 4 locations
-  rslt = my_svf(SDR, "160", "TDI", "(0)", "TDO", "(C071C0000CB264FFFFFFFFF8D07FFFFF00000000)", "MASK", "(FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)", NULL);
-  show_tdo(rslt);
-  // readout more locations
-  my_svf(SDR, "320", "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
-  // readout more locations
-  my_svf(SDR, "640", "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
-  // readout more locations
-  my_svf(SDR, "1280", "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
-  // readout more locations
-  my_svf(SDR, "65536", "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
+  // rslt = my_svf(SDR, "160", "TDI", "(0)", "TDO", "(C071C0000CB264FFFFFFFFF8D07FFFFF00000000)", "MASK", "(FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)", NULL);
+  // show_tdo(rslt);
+  for (i = 2; i < 8; i++)
+    {
+      char lenbuf[10];
+      int len = 1 << i;
+      sprintf(lenbuf, "%d", (1+len)<<5);
+      // readout 2^i locations
+      rslt = my_svf(SDR, lenbuf, "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
+      show_tdo(rslt);
+    }
   svf_free();
 }
 
