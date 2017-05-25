@@ -228,9 +228,10 @@ static int svf_last_printed_percentage = -1;
  * macro is used to print the svf hex buffer at desired debug level
  * DEBUG, INFO, ERROR, USER
  */
-#ifdef SVF_VERBOSE
-#define SVF_BUF_LOG(_lvl, _buf, _nbits, _desc)				\
+#define SVF_BUF_LOG_(_lvl, _buf, _nbits, _desc)				\
 	svf_hexbuf_print(LOG_LVL_##_lvl ,  __FILE__, __LINE__, __func__, _buf, _nbits, _desc)
+#ifdef SVF_VERBOSE
+#define SVF_BUF_LOG(_lvl, _buf, _nbits, _desc) SVF_BUF_LOG_(_lvl, _buf, _nbits, _desc)
 #else
 #define SVF_BUF_LOG(_lvl, _buf, _nbits, _desc)
 #endif
@@ -912,9 +913,9 @@ static int svf_check_tdo(void)
 				&svf_mask_buffer[index_var], len)) {
 			LOG_ERROR("tdo check error at line %d",
 				svf_check_tdo_para[i].line_num);
-			SVF_BUF_LOG(ERROR, &svf_tdi_buffer[index_var], len, "READ");
-			SVF_BUF_LOG(ERROR, &svf_tdo_buffer[index_var], len, "WANT");
-			SVF_BUF_LOG(ERROR, &svf_mask_buffer[index_var], len, "MASK");
+			SVF_BUF_LOG_(ERROR, &svf_tdi_buffer[index_var], len, "READ");
+			SVF_BUF_LOG_(ERROR, &svf_tdo_buffer[index_var], len, "WANT");
+			SVF_BUF_LOG_(ERROR, &svf_mask_buffer[index_var], len, "MASK");
 
 			if (svf_ignore_error == 0)
 				return ERROR_FAIL;

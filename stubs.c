@@ -204,6 +204,226 @@ struct target *get_current_target(struct command_context *cmd_ctx)
   return 0;
 }
 
+enum {dbg_req = 1, dbg_resume = 2, dbg_halt = 4, dbg_clksel = 8, dbg_unused = 16};
+enum {prog_addr = 0, data_addr = 0x100000, shared_addr = 0x800000, debug_addr = 0xF00000};
+
+enum edcl_mode {
+  edcl_mode_unknown,
+  edcl_mode_read,
+  edcl_mode_write,
+  edcl_mode_block_read,
+  edcl_mode_bootstrap,
+  edcl_max=256};
+
+#pragma pack(4)
+
+static struct etrans {
+  enum edcl_mode mode;
+  volatile uint32_t *ptr;
+  uint32_t val;
+} edcl_trans[edcl_max+1];
+
+#pragma pack()
+
+static int edcl_cnt;
+static long prev_addr;
+
+/* shared address space pointer (appears at 0x800000 in minion address map */
+volatile static struct etrans *shared_base;
+volatile uint32_t * const rxfifo_base = (volatile uint32_t*)(4<<20);
+void my_addr(long dbg, long inc, long wr, long addr);
+uint32_t *raw_read_data(int len);
+struct etrans *my_read_data(int len);
+void raw_write_data(int len, uint32_t *ibuf);
+void my_write_data(int len, struct etrans *ibuf);
+
+int shared_read(volatile struct etrans *addr, int cnt, struct etrans *obuf)
+  {
+    int i;
+    struct etrans *rslt;
+    long laddr = addr - shared_base;
+    my_addr(dbg_resume,1,0,shared_addr+laddr*sizeof(struct etrans)/sizeof(uint32_t));
+    rslt = my_read_data(cnt);
+    for (i = 0; i < cnt; i++)
+      {
+        obuf[i] = rslt[i];
+#ifdef VERBOSE4
+        printf("shared_read(%d, %p) => %p,%x;\n", i, addr+i, obuf[i].ptr, obuf[i].val);
+#endif
+      }
+    return 0;
+  }
+
+int shared_write(volatile struct etrans *addr, int cnt, struct etrans *ibuf)
+  {
+    int i;
+    long laddr = addr - shared_base;
+    my_addr(dbg_resume,1,1,shared_addr+laddr*sizeof(struct etrans)/sizeof(uint32_t));
+    for (i = 0; i < cnt; i++)
+      {
+#ifdef VERBOSE4
+        {
+          int j;
+          printf("shared_write(%d, %p, 0x%x, 0x%p);\n", i, addr+i, cnt, ibuf);
+          for (j = 0; j < sizeof(struct etrans); j++)
+            printf("%x ", ((volatile uint8_t *)(&addr[i]))[j]);
+          printf("\n");
+        }
+#endif  
+      }
+    my_write_data(cnt, ibuf);
+    return 0;
+  }
+
+int queue_flush(void)
+{
+  int cnt;
+  struct etrans tmp;
+  tmp.val = 0xDEADBEEF;
+  edcl_trans[edcl_cnt++].mode = edcl_mode_unknown;
+#ifdef VERBOSE
+  printf("sizeof(struct etrans) = %ld\n", sizeof(struct etrans));
+  for (int i = 0; i < edcl_cnt; i++)
+    {
+      switch(edcl_trans[i].mode)
+        {
+        case edcl_mode_write:
+          printf("queue_mode_write(%p, 0x%x);\n", edcl_trans[i].ptr, edcl_trans[i].val);
+          break;
+        case edcl_mode_read:
+          printf("queue_mode_read(%p, 0x%x);\n", edcl_trans[i].ptr, edcl_trans[i].val);
+          break;
+        case edcl_mode_unknown:
+          if (i == edcl_cnt-1)
+            {
+            printf("queue_end();\n");
+            break;
+            }
+        default:
+          printf("queue_mode %d\n", edcl_trans[i].mode);
+          break;
+        }
+    }
+#endif
+  shared_write(shared_base, edcl_cnt, edcl_trans);
+  shared_write(shared_base+edcl_max, 1, &tmp);
+  do {
+#ifdef VERBOSE
+    int i = 10000000;
+    int tot = 0;
+    while (i--) tot += i;
+    printf("waiting for minion %x\n", tot);
+#endif
+    shared_read(shared_base, 1, &tmp);
+  } while (tmp.ptr);
+  tmp.val = 0;
+  shared_write(shared_base+edcl_max, 1, &tmp);
+  cnt = edcl_cnt;
+  edcl_cnt = 1;
+  edcl_trans[0].mode = edcl_mode_read;
+  edcl_trans[0].ptr = (volatile uint32_t*)(8<<20);
+  return cnt;
+}
+
+void queue_write(volatile uint32_t *const sd_ptr, uint32_t val, int flush)
+ {
+   struct etrans tmp;
+#if 1
+   flush = 1;
+#endif   
+   tmp.mode = edcl_mode_write;
+   tmp.ptr = sd_ptr;
+   tmp.val = val;
+   edcl_trans[edcl_cnt++] = tmp;
+   if (flush || (edcl_cnt==edcl_max-1))
+     {
+       queue_flush();
+     }
+#ifdef VERBOSE  
+   printf("queue_write(%p, 0x%x);\n", tmp.ptr, tmp.val);
+#endif
+ }
+
+uint32_t queue_read(volatile uint32_t * const sd_ptr)
+ {
+   int cnt;
+   struct etrans tmp;
+   tmp.mode = edcl_mode_read;
+   tmp.ptr = sd_ptr;
+   tmp.val = 0xDEADBEEF;
+   edcl_trans[edcl_cnt++] = tmp;
+   cnt = queue_flush();
+   shared_read(shared_base+(cnt-2), 1, &tmp);
+#ifdef VERBOSE
+   printf("queue_read(%p, %p, 0x%x);\n", sd_ptr, tmp.ptr, tmp.val);
+#endif   
+   return tmp.val;
+ }
+
+void queue_read_array(volatile uint32_t * const sd_ptr, uint32_t cnt, uint32_t iobuf[])
+ {
+   int i, n, cnt2;
+   struct etrans tmp;
+   if (edcl_cnt+cnt >= edcl_max)
+     {
+     queue_flush();
+     }
+   for (i = 0; i < cnt; i++)
+     {
+       tmp.mode = edcl_mode_read;
+       tmp.ptr = sd_ptr+i;
+       tmp.val = 0xDEADBEEF;
+       edcl_trans[edcl_cnt++] = tmp;
+     }
+   cnt2 = queue_flush();
+   n = cnt2-1-cnt;
+   shared_read(shared_base+n, cnt, edcl_trans+n);
+   for (i = n; i < n+cnt; i++) iobuf[i-n] = edcl_trans[i].val;
+ }
+
+#if 0
+uint32_t queue_block_read2(int i)
+{
+  uint32_t rslt = __be32_to_cpu(((volatile uint32_t *)(shared_base+1))[i]);
+  return rslt;
+}
+#endif
+
+int queue_block_read1(void)
+{
+   struct etrans tmp;
+   queue_flush();
+   tmp.mode = edcl_mode_block_read;
+   tmp.ptr = rxfifo_base;
+   tmp.val = 1;
+   shared_write(shared_base, 1, &tmp);
+   tmp.val = 0xDEADBEEF;
+   shared_write(shared_base+edcl_max, 1, &tmp);
+   do {
+    shared_read(shared_base, 1, &tmp);
+  } while (tmp.ptr);
+#ifdef VERBOSE3
+   printf("queue_block_read1 completed\n");
+#endif
+   return tmp.mode;
+}
+
+void rx_write_fifo(uint32_t data)
+{
+  queue_write(rxfifo_base, data, 0);
+}
+
+uint32_t rx_read_fifo(void)
+{
+  return queue_read(rxfifo_base);
+}
+
+void write_led(uint32_t data)
+{
+  volatile uint32_t * const led_base = (volatile uint32_t*)(7<<20);
+  queue_write(led_base, data, 1);
+}
+
 void show_tdo(uint32_t *rslt)
 {
   int j;
@@ -211,10 +431,68 @@ void show_tdo(uint32_t *rslt)
 	      printf("%.8X%c", rslt[j], j?':':'\n');
 }
 
+void my_addr(long dbg, long inc, long wr, long addr)
+{
+  char addrbuf[20];
+  sprintf(addrbuf, "(%lX)", (dbg<<34)|(inc<<33)|(wr<<32)|addr);
+  // select address reg
+  my_svf(SIR, "6", "TDI", "(03)", NULL);
+  // auto-inc on
+  my_svf(SDR, "40", "TDI", addrbuf, NULL);
+  // select data reg
+  my_svf(SIR, "6", "TDI", "(02)", NULL);
+  prev_addr = addr;
+}
+
+uint32_t *raw_read_data(int len)
+{
+  uint32_t *rslt;
+  char lenbuf[10];
+  sprintf(lenbuf, "%d", (1+len)<<5);
+  rslt = my_svf(SDR, lenbuf, "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
+  assert(prev_addr == *rslt);
+  return rslt;
+}
+
+struct etrans *my_read_data(int len)
+{
+  uint32_t *rslt = raw_read_data(len*sizeof(struct etrans)/sizeof(uint32_t));
+  return (struct etrans *)(rslt+1);
+}
+
+void raw_write_data(int len, uint32_t *cnvptr)
+{
+  int j, cnt = 0;
+  uint32_t *rslt;
+  char lenbuf[10];
+  char *outptr = (char *)malloc(len*8+3);
+  outptr[cnt++] = '(';
+  for (j = len; j--; )
+    {
+    sprintf(outptr+cnt, "%.08X", cnvptr[j]);
+    cnt += 8;
+    }
+  outptr[cnt++] = ')';
+  outptr[cnt++] = 0;
+  sprintf(lenbuf, "%ld", (1+len)*sizeof(uint32_t) << 3);
+  rslt = my_svf(SDR, lenbuf, "TDI", outptr, "TDO", "(0)", "MASK", "(0)", NULL);
+  free(outptr);
+  show_tdo(rslt);
+  assert(prev_addr == *rslt);
+  free(rslt);
+}
+
+void my_write_data(int len, struct etrans *iptr)
+{
+  uint32_t *rslt;
+  raw_write_data(len*sizeof(struct etrans)/sizeof(uint32_t), (uint32_t *)iptr);
+  rslt = raw_read_data(len*sizeof(struct etrans)/sizeof(uint32_t));
+  show_tdo(rslt);
+}
+
 void my_jtag(void)
 {
-  int i;
-  uint32_t *rslt;
+  int i, j;
   svf_init();
   my_svf(TRST, "OFF", NULL);
   my_svf(ENDIR, "IDLE", NULL);
@@ -222,23 +500,22 @@ void my_jtag(void)
   my_svf(STATE, "RESET", NULL);
   my_svf(STATE, "IDLE", NULL);
   my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
-  // select address reg
-  my_svf(SIR, "6", "TDI", "(03)", NULL);
-  // auto-inc on
-  my_svf(SDR, "40", "TDI", "(1200000040)", NULL);
-  // select data reg
-  my_svf(SIR, "6", "TDI", "(02)", NULL);
-  // rslt = my_svf(SDR, "160", "TDI", "(0)", "TDO", "(C071C0000CB264FFFFFFFFF8D07FFFFF00000000)", "MASK", "(FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)", NULL);
-  // show_tdo(rslt);
-  for (i = 2; i < 8; i++)
+  for (i = 2; i < 9; i++)
     {
-      char lenbuf[10];
+      uint32_t *rslt1, *rslt2;
       int len = 1 << i;
-      sprintf(lenbuf, "%d", (1+len)<<5);
       // readout 2^i locations
-      rslt = my_svf(SDR, lenbuf, "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
-      show_tdo(rslt);
+      my_addr(dbg_halt|dbg_clksel,1,0,prog_addr+0x100);
+      rslt1 = raw_read_data(len);
+      show_tdo(rslt1);
+      my_addr(dbg_halt|dbg_clksel,1,1,prog_addr+0x100);
+      for (j = 0; j < len; j++) rslt1[j] = 0xDEAD0000 | (1 << j);
+      raw_write_data(len, rslt1);
+      rslt2 = raw_read_data(len);
+      show_tdo(rslt2);
+      printf("Writing complete\n");
     }
+  write_led(0x55);  
   svf_free();
 }
 
