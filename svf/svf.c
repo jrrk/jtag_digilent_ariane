@@ -412,6 +412,10 @@ static int svf_find_string_in_array(char *str, char **strs, int num_of_element)
 	return 0xFF;
 }
 
+#ifdef VERBOSE
+static FILE *tmplog;
+#endif
+
 int svf_free(void)
 {
 
@@ -447,6 +451,10 @@ int svf_free(void)
 	svf_free_xxd_para(&svf_para.tir_para);
 	svf_free_xxd_para(&svf_para.sdr_para);
 	svf_free_xxd_para(&svf_para.sir_para);
+
+#ifdef VERBOSE
+	fclose(tmplog);
+#endif
 }
 
 int svf_init(void)
@@ -478,6 +486,10 @@ int svf_init(void)
     jtag_add_tlr();
   }
 
+#ifdef VERBOSE
+  tmplog = fopen("tmp.log", "w");
+#endif
+  
   return ERROR_OK;
   
 }
@@ -976,6 +988,13 @@ static int svf_run_command(enum svf_command command, char *argus[], int num_of_a
 	/* flag padding commands skipped due to -tap command */
 	int padding_command_skipped = 0;
 	*rslt = NULL;
+#ifdef VERBOSE
+	fprintf(tmplog, "%s ", svf_command_name[command]);
+	for (i = 1; i < num_of_argu; i++)
+	  fprintf(tmplog, "%s ", argus[i]);
+	fprintf(tmplog, ";\n");
+	fflush(tmplog);
+#endif
 	
 	switch (command) {
 		case ENDDR:
@@ -1242,7 +1261,7 @@ XXR_common:
 							field.out_value,
 							field.in_value,
 							svf_para.dr_end_state);
-					printf("end_state = %X\n", svf_para.dr_end_state);
+					LOG_DEBUG("end_state = %X\n", svf_para.dr_end_state);
 				}
 
 				svf_buffer_index += (i + 7) >> 3;
@@ -1572,7 +1591,7 @@ XXR_common:
 			LOG_USER("(Above Padding command skipped, as per -tap argument)");
 	}
 
-	if (debug_level >= LOG_LVL_DEBUG) {
+	if ((debug_level >= LOG_LVL_DEBUG) || (SIR == command) || (SDR == command)) {
 		/* for convenient debugging, execute tap if possible */
 		if ((svf_buffer_index > 0) && \
 				(((command != STATE) && (command != RUNTEST)) || \
@@ -1589,7 +1608,7 @@ XXR_common:
 	} else {
 		/* for fast executing, execute tap if necessary */
 		/* half of the buffer is for the next command */
-		if (((svf_buffer_index >= SVF_MAX_BUFFER_SIZE_TO_COMMIT) ||
+	  if (((svf_buffer_index >= SVF_MAX_BUFFER_SIZE_TO_COMMIT) ||
 				(svf_check_tdo_para_index >= SVF_CHECK_TDO_PARA_SIZE / 2)) && \
 				(((command != STATE) && (command != RUNTEST)) || \
 						((command == STATE) && (num_of_argu == 2))))

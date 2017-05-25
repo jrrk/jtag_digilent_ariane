@@ -233,17 +233,16 @@ volatile static struct etrans *shared_base;
 volatile uint32_t * const rxfifo_base = (volatile uint32_t*)(4<<20);
 void my_addr(long dbg, long inc, long wr, long addr);
 uint32_t *raw_read_data(int len);
-struct etrans *my_read_data(int len);
+struct etrans *my_read_data(long addr, int len);
 void raw_write_data(int len, uint32_t *ibuf);
-void my_write_data(int len, struct etrans *ibuf);
+void my_write_data(long addr, int len, struct etrans *ibuf);
 
 int shared_read(volatile struct etrans *addr, int cnt, struct etrans *obuf)
   {
     int i;
     struct etrans *rslt;
     long laddr = addr - shared_base;
-    my_addr(dbg_resume,1,0,shared_addr+laddr*sizeof(struct etrans)/sizeof(uint32_t));
-    rslt = my_read_data(cnt);
+    rslt = my_read_data(shared_addr+laddr*sizeof(struct etrans), cnt);
     for (i = 0; i < cnt; i++)
       {
         obuf[i] = rslt[i];
@@ -258,7 +257,6 @@ int shared_write(volatile struct etrans *addr, int cnt, struct etrans *ibuf)
   {
     int i;
     long laddr = addr - shared_base;
-    my_addr(dbg_resume,1,1,shared_addr+laddr*sizeof(struct etrans)/sizeof(uint32_t));
     for (i = 0; i < cnt; i++)
       {
 #ifdef VERBOSE4
@@ -271,7 +269,7 @@ int shared_write(volatile struct etrans *addr, int cnt, struct etrans *ibuf)
         }
 #endif  
       }
-    my_write_data(cnt, ibuf);
+    my_write_data(shared_addr+laddr*sizeof(struct etrans), cnt, ibuf);
     return 0;
   }
 
@@ -328,7 +326,7 @@ int queue_flush(void)
 void queue_write(volatile uint32_t *const sd_ptr, uint32_t val, int flush)
  {
    struct etrans tmp;
-#if 1
+#if 0
    flush = 1;
 #endif   
    tmp.mode = edcl_mode_write;
@@ -424,6 +422,39 @@ void write_led(uint32_t data)
   queue_write(led_base, data, 1);
 }
 
+static void minion_console_putchar(unsigned char ch)
+{
+  static int addr_int = 0;
+  volatile uint32_t * const video_base = (volatile uint32_t*)(10<<20);
+  if (ch != 10) queue_write(video_base+addr_int, ch, 0);
+  else
+    {
+      while ((addr_int & 127) < 127)
+         {
+           queue_write(video_base+addr_int, ' ', 0);
+           addr_int++;
+         }
+    }
+  if (++addr_int >= 4096)
+    {
+      // this is where we would scroll
+      addr_int = 0;
+    }
+}
+
+int minion_console_printf (const char *fmt, ...)
+{
+  char buffer[99];
+  va_list va;
+  int i, rslt;
+  va_start(va, fmt);
+  rslt = vsnprintf(buffer, sizeof(buffer), fmt, va);
+  va_end(va);
+  for (i = 0; i < rslt; i++) minion_console_putchar(buffer[i]);
+  queue_flush();
+  return rslt;
+}
+
 void show_tdo(uint32_t *rslt)
 {
   int j;
@@ -442,6 +473,9 @@ void my_addr(long dbg, long inc, long wr, long addr)
   // select data reg
   my_svf(SIR, "6", "TDI", "(02)", NULL);
   prev_addr = addr;
+#ifdef VERBOSE  
+  printf("my_addr = %s\n", addrbuf);
+#endif  
 }
 
 uint32_t *raw_read_data(int len)
@@ -454,9 +488,11 @@ uint32_t *raw_read_data(int len)
   return rslt;
 }
 
-struct etrans *my_read_data(int len)
+struct etrans *my_read_data(long addr, int len)
 {
-  uint32_t *rslt = raw_read_data(len*sizeof(struct etrans)/sizeof(uint32_t));
+  uint32_t *rslt;
+  my_addr(0,1,0,addr);
+  rslt = raw_read_data(len*sizeof(struct etrans)/sizeof(uint32_t));
   return (struct etrans *)(rslt+1);
 }
 
@@ -472,27 +508,69 @@ void raw_write_data(int len, uint32_t *cnvptr)
     sprintf(outptr+cnt, "%.08X", cnvptr[j]);
     cnt += 8;
     }
-  outptr[cnt++] = ')';
-  outptr[cnt++] = 0;
-  sprintf(lenbuf, "%ld", (1+len)*sizeof(uint32_t) << 3);
+  strcpy(outptr+cnt, ")");
+  sprintf(lenbuf, "%d", (len) << 5);
   rslt = my_svf(SDR, lenbuf, "TDI", outptr, "TDO", "(0)", "MASK", "(0)", NULL);
   free(outptr);
-  show_tdo(rslt);
   assert(prev_addr == *rslt);
+  for (j = 0; j < len-1; j++)
+    {
+      if (cnvptr[j] != rslt[j+1])
+	printf("Write jtag chain mismatch: %.8X != %.8X\n", cnvptr[j], rslt[j+1]);
+    }
   free(rslt);
 }
 
-void my_write_data(int len, struct etrans *iptr)
+void my_write_data(long addr, int len, struct etrans *iptr)
 {
-  uint32_t *rslt;
-  raw_write_data(len*sizeof(struct etrans)/sizeof(uint32_t), (uint32_t *)iptr);
-  rslt = raw_read_data(len*sizeof(struct etrans)/sizeof(uint32_t));
-  show_tdo(rslt);
+  int j;
+  uint32_t *rslt2, *rslt1 = (uint32_t *)iptr;
+  my_addr(0,1,1,addr);
+  raw_write_data(len*sizeof(struct etrans)/sizeof(uint32_t), rslt1);
+  my_addr(0,1,0,addr);
+  rslt2 = raw_read_data(len*sizeof(struct etrans)/sizeof(uint32_t));
+  for (j = 0; j < len*sizeof(struct etrans)/sizeof(uint32_t); j++)
+    {
+      if (rslt1[j] != rslt2[j+1])
+	printf("Memory test mismatch: %.8X != %.8X\n", rslt1[j], rslt2[j+1]);
+    }
+}
+
+void my_mem_test(int shft, long addr)
+{
+  int i, j;
+  for (i = 1; i < shft; i++)
+    {
+      static const uint32_t pattern[] = {0xDEAD0000,0xBEEF0000,0xC0010000,0xF00D0000,0xAAAA0000,0x55550000,0x33330000,0xCCCC0000};
+      uint32_t *rslt1, *rslt2;
+      int len = 1 << i;
+      // readout 2^i locations
+      my_addr(0,1,0,addr);
+      rslt1 = raw_read_data(len);
+      for (j = 0; j < len; j++) rslt1[j] = (pattern[(j>>4)&7]<<((j>>7)<<2)) | (1 << (j&15));
+      my_addr(0,1,1,addr);
+      raw_write_data(len, rslt1);
+      my_addr(0,1,0,addr);
+      rslt2 = raw_read_data(len);
+      for (j = 0; j < len; j++)
+	{
+	  if (rslt1[j] != rslt2[j+1])
+	    {
+	    printf("Memory test mismatch: %.8X != %.8X\n", rslt1[j], rslt2[j+1]);
+	    abort();
+	    }
+	}
+    }
+}
+
+int fact(int n)
+{
+  return n > 0 ? n * fact(n-1) : 1;
 }
 
 void my_jtag(void)
 {
-  int i, j;
+  int i;
   svf_init();
   my_svf(TRST, "OFF", NULL);
   my_svf(ENDIR, "IDLE", NULL);
@@ -500,22 +578,16 @@ void my_jtag(void)
   my_svf(STATE, "RESET", NULL);
   my_svf(STATE, "IDLE", NULL);
   my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
-  for (i = 2; i < 9; i++)
+  my_addr(dbg_resume,0,0,shared_addr);
+  //  my_mem_test(dbg_halt|dbg_clksel, prog_addr+0x100);
+  //  my_mem_test(0, shared_addr+0x10);
+  my_mem_test(2, shared_addr);
+  write_led(0x55);
+  minion_console_printf("lowRISC was here\n");
+  for (i = 0; i < 10; i++)
     {
-      uint32_t *rslt1, *rslt2;
-      int len = 1 << i;
-      // readout 2^i locations
-      my_addr(dbg_halt|dbg_clksel,1,0,prog_addr+0x100);
-      rslt1 = raw_read_data(len);
-      show_tdo(rslt1);
-      my_addr(dbg_halt|dbg_clksel,1,1,prog_addr+0x100);
-      for (j = 0; j < len; j++) rslt1[j] = 0xDEAD0000 | (1 << j);
-      raw_write_data(len, rslt1);
-      rslt2 = raw_read_data(len);
-      show_tdo(rslt2);
-      printf("Writing complete\n");
+      minion_console_printf("%d! = %d\n", i, fact(i));
     }
-  write_led(0x55);  
   svf_free();
 }
 
