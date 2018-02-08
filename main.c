@@ -232,9 +232,9 @@ static long prev_addr;
 volatile static struct etrans *shared_base;
 volatile uint32_t * const rxfifo_base = (volatile uint32_t*)(4<<20);
 void my_addr(long dbg, long inc, long wr, long addr);
-uint32_t *raw_read_data(int len);
+uint64_t *raw_read_data(int len);
 struct etrans *my_read_data(long addr, int len);
-void raw_write_data(int len, uint32_t *ibuf);
+void raw_write_data(int len, uint64_t *ibuf);
 void my_write_data(long addr, int len, struct etrans *ibuf);
 
 int shared_read(volatile struct etrans *addr, int cnt, struct etrans *obuf)
@@ -478,9 +478,9 @@ void my_addr(long dbg, long inc, long wr, long addr)
 #endif  
 }
 
-uint32_t *raw_read_data(int len)
+uint64_t *raw_read_data(int len)
 {
-  uint32_t *rslt;
+  uint64_t *rslt;
   char lenbuf[10];
   sprintf(lenbuf, "%d", (1+len)<<6);
   rslt = my_svf(SDR, lenbuf, "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
@@ -490,33 +490,33 @@ uint32_t *raw_read_data(int len)
 
 struct etrans *my_read_data(long addr, int len)
 {
-  uint32_t *rslt;
+  uint64_t *rslt;
   my_addr(0,1,0,addr);
   rslt = raw_read_data(len*sizeof(struct etrans)/sizeof(uint32_t));
   return (struct etrans *)(rslt+1);
 }
 
-void raw_write_data(int len, uint32_t *cnvptr)
+void raw_write_data(int len, uint64_t *cnvptr)
 {
   int j, cnt = 0;
-  uint32_t *rslt;
+  uint64_t *rslt;
   char lenbuf[10];
-  char *outptr = (char *)malloc(len*8+3);
+  char *outptr = (char *)malloc(len*16+3);
   outptr[cnt++] = '(';
   for (j = len; j--; )
     {
-    sprintf(outptr+cnt, "%.08X", cnvptr[j]);
-    cnt += 8;
+    sprintf(outptr+cnt, "%.016lX", cnvptr[j]);
+    cnt += 16;
     }
   strcpy(outptr+cnt, ")");
-  sprintf(lenbuf, "%d", (len) << 5);
+  sprintf(lenbuf, "%d", (len) << 6);
   rslt = my_svf(SDR, lenbuf, "TDI", outptr, "TDO", "(0)", "MASK", "(0)", NULL);
   free(outptr);
   assert(prev_addr == *rslt);
   for (j = 0; j < len-1; j++)
     {
       if (cnvptr[j] != rslt[j+1])
-	printf("Write jtag chain mismatch: %.8X != %.8X\n", cnvptr[j], rslt[j+1]);
+	printf("Write jtag chain mismatch: %.16lX != %.16lX\n", cnvptr[j], rslt[j+1]);
     }
   free(rslt);
 }
@@ -524,15 +524,15 @@ void raw_write_data(int len, uint32_t *cnvptr)
 void my_write_data(long addr, int len, struct etrans *iptr)
 {
   int j;
-  uint32_t *rslt2, *rslt1 = (uint32_t *)iptr;
+  uint64_t *rslt2, *rslt1 = (uint64_t *)iptr;
   my_addr(0,1,1,addr);
-  raw_write_data(len*sizeof(struct etrans)/sizeof(uint32_t), rslt1);
+  raw_write_data(len*sizeof(struct etrans)/sizeof(uint64_t), rslt1);
   my_addr(0,1,0,addr);
   rslt2 = raw_read_data(len*sizeof(struct etrans)/sizeof(uint32_t));
-  for (j = 0; j < len*sizeof(struct etrans)/sizeof(uint32_t); j++)
+  for (j = 0; j < len*sizeof(struct etrans)/sizeof(uint64_t); j++)
     {
       if (rslt1[j] != rslt2[j+1])
-	printf("Memory test mismatch: %.8X != %.8X\n", rslt1[j], rslt2[j+1]);
+	printf("Memory test mismatch: %.16lX != %.16lX\n", rslt1[j], rslt2[j+1]);
     }
 }
 
@@ -542,7 +542,7 @@ void my_mem_test(int shft, long addr)
   for (i = 1; i < shft; i++)
     {
       static const uint32_t pattern[] = {0xDEAD0000,0xBEEF0000,0xC0010000,0xF00D0000,0xAAAA0000,0x55550000,0x33330000,0xCCCC0000};
-      uint32_t *rslt1, *rslt2;
+      uint64_t *rslt1, *rslt2;
       int len = 1 << i;
       // readout 2^i locations
       my_addr(0,1,0,addr);
@@ -556,7 +556,7 @@ void my_mem_test(int shft, long addr)
 	{
 	  if (rslt1[j] != rslt2[j+1])
 	    {
-	    printf("Memory test mismatch: %.8X != %.8X\n", rslt1[j], rslt2[j+1]);
+	    printf("Memory test mismatch: %.16lX != %.16lX\n", rslt1[j], rslt2[j+1]);
 	    abort();
 	    }
 	}

@@ -406,7 +406,7 @@ int opendous_handle_opendous_type_command(struct command_invocation *cmd);
 void aice_constructor(void);
 void jtag_constructor(void);
 void swd_constructor(void);
-uint32_t *my_svf(enum svf_command command, ...);
+uint64_t *my_svf(enum svf_command command, ...);
 int svf_init(void);
 int svf_free(void);
 int rslt_len(void);

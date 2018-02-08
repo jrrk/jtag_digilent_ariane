@@ -196,7 +196,7 @@ static int svf_check_tdo_para_index;
 static int svf_read_command_from_file(FILE *fd);
 static int svf_check_tdo(void);
 static int svf_add_check_para(uint8_t enabled, int buffer_offset, int bit_len);
-static int svf_run_command(enum svf_command command, char *argus[], int num_of_argu, uint32_t **rslt);
+static int svf_run_command(enum svf_command command, char *argus[], int num_of_argu, uint64_t **rslt);
 static int svf_execute_tap(void);
 
 static FILE *svf_fd;
@@ -260,18 +260,18 @@ static void svf_hexbuf_print(int dbg_lvl, const char *file, unsigned line,
 	free(prbuf);
 }
 
-static uint32_t *svf_hexbuf_cnv(const uint8_t *buf, int bit_len)
+static uint64_t *svf_hexbuf_cnv(const uint8_t *buf, int bit_len)
 {
   int j;
   int byte_len = DIV_ROUND_UP(bit_len, 8);
   int msbits = bit_len % 8;
-  int cnt = DIV_ROUND_UP(byte_len, 4);
-  uint32_t *rslt = (uint32_t *)calloc(sizeof(uint32_t), cnt);
+  int cnt = DIV_ROUND_UP(byte_len, 8);
+  uint64_t *rslt = (uint64_t *)calloc(sizeof(uint64_t), cnt);
   /* print correct number of bytes, mask excess bits where applicable */
-  uint32_t msb = buf[byte_len - 1] & (msbits ? (1 << msbits) - 1 : 0xff);
+  uint64_t msb = buf[byte_len - 1] & (msbits ? (1 << msbits) - 1 : 0xff);
   for (j = byte_len - 2; j >= 0; j--)
     {
-      if ((j&3)==3)
+      if ((j&7)==7)
 	{
 	  rslt[--cnt] = msb;
 	  msb = 0;
@@ -633,7 +633,7 @@ COMMAND_HANDLER(handle_svf_command)
 		      enum svf_command command;
 		      char *argus[256];
 		      int num_of_argu = 0, i, j;
-		      uint32_t *rslt;
+		      uint64_t *rslt;
 		    /* Parse Command */
 		      if (ERROR_OK != svf_parse_cmd_string(svf_command_buffer, strlen(svf_command_buffer), argus, &num_of_argu)) {
 			    LOG_ERROR("fail to run command at line %d", svf_line_number);
@@ -969,7 +969,7 @@ static int svf_execute_tap(void)
 	return ERROR_OK;
 }
 
-static int svf_run_command(enum svf_command command, char *argus[], int num_of_argu, uint32_t **rslt)
+static int svf_run_command(enum svf_command command, char *argus[], int num_of_argu, uint64_t **rslt)
 {
 	int i;
 
@@ -1634,13 +1634,13 @@ int svf_register_commands(struct command_context *cmd_ctx)
 	return register_commands(cmd_ctx, NULL, svf_command_handlers);
 }
 
-uint32_t *my_svf(enum svf_command command, ...)
+uint64_t *my_svf(enum svf_command command, ...)
 {
   static char *argus[256];
   int num_of_argu = 1;
   va_list ap;
   char c, *s;
-  uint32_t *rslt = NULL;
+  uint64_t *rslt = NULL;
   int ignore = svf_ignore_error;
   svf_ignore_error = 1;
   *argus = (char *)svf_command_name[command];
