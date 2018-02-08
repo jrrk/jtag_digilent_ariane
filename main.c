@@ -136,7 +136,7 @@ struct target *get_current_target(struct command_context *cmd_ctx)
   my_command.argc = 2;
   my_command.argv = argv_7;
   handle_help_add_command(&my_command);
-#if 0
+#if 1
   my_command.name = "debug_level";
   my_command.argc = 1;
   my_command.argv = argv2;
@@ -482,7 +482,7 @@ uint32_t *raw_read_data(int len)
 {
   uint32_t *rslt;
   char lenbuf[10];
-  sprintf(lenbuf, "%d", (1+len)<<5);
+  sprintf(lenbuf, "%d", (1+len)<<6);
   rslt = my_svf(SDR, lenbuf, "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
   assert(prev_addr == *rslt);
   return rslt;
