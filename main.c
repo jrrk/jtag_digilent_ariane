@@ -233,227 +233,7 @@ volatile static struct etrans *shared_base;
 volatile uint32_t * const rxfifo_base = (volatile uint32_t*)(4<<20);
 void my_addr(long dbg, long inc, long wr, long addr);
 uint64_t *raw_read_data(int len);
-struct etrans *my_read_data(long addr, int len);
 void raw_write_data(int len, uint64_t *ibuf);
-void my_write_data(long addr, int len, struct etrans *ibuf);
-
-int shared_read(volatile struct etrans *addr, int cnt, struct etrans *obuf)
-  {
-    int i;
-    struct etrans *rslt;
-    long laddr = addr - shared_base;
-    rslt = my_read_data(shared_addr+laddr*sizeof(struct etrans), cnt);
-    for (i = 0; i < cnt; i++)
-      {
-        obuf[i] = rslt[i];
-#ifdef VERBOSE4
-        printf("shared_read(%d, %p) => %p,%x;\n", i, addr+i, obuf[i].ptr, obuf[i].val);
-#endif
-      }
-    return 0;
-  }
-
-int shared_write(volatile struct etrans *addr, int cnt, struct etrans *ibuf)
-  {
-    int i;
-    long laddr = addr - shared_base;
-    for (i = 0; i < cnt; i++)
-      {
-#ifdef VERBOSE4
-        {
-          int j;
-          printf("shared_write(%d, %p, 0x%x, 0x%p);\n", i, addr+i, cnt, ibuf);
-          for (j = 0; j < sizeof(struct etrans); j++)
-            printf("%x ", ((volatile uint8_t *)(&addr[i]))[j]);
-          printf("\n");
-        }
-#endif  
-      }
-    my_write_data(shared_addr+laddr*sizeof(struct etrans), cnt, ibuf);
-    return 0;
-  }
-
-int queue_flush(void)
-{
-  int cnt;
-  struct etrans tmp;
-  tmp.val = 0xDEADBEEF;
-  edcl_trans[edcl_cnt++].mode = edcl_mode_unknown;
-#ifdef VERBOSE
-  printf("sizeof(struct etrans) = %ld\n", sizeof(struct etrans));
-  for (int i = 0; i < edcl_cnt; i++)
-    {
-      switch(edcl_trans[i].mode)
-        {
-        case edcl_mode_write:
-          printf("queue_mode_write(%p, 0x%x);\n", edcl_trans[i].ptr, edcl_trans[i].val);
-          break;
-        case edcl_mode_read:
-          printf("queue_mode_read(%p, 0x%x);\n", edcl_trans[i].ptr, edcl_trans[i].val);
-          break;
-        case edcl_mode_unknown:
-          if (i == edcl_cnt-1)
-            {
-            printf("queue_end();\n");
-            break;
-            }
-        default:
-          printf("queue_mode %d\n", edcl_trans[i].mode);
-          break;
-        }
-    }
-#endif
-  shared_write(shared_base, edcl_cnt, edcl_trans);
-  shared_write(shared_base+edcl_max, 1, &tmp);
-  do {
-#ifdef VERBOSE
-    int i = 10000000;
-    int tot = 0;
-    while (i--) tot += i;
-    printf("waiting for minion %x\n", tot);
-#endif
-    shared_read(shared_base, 1, &tmp);
-  } while (tmp.ptr);
-  tmp.val = 0;
-  shared_write(shared_base+edcl_max, 1, &tmp);
-  cnt = edcl_cnt;
-  edcl_cnt = 1;
-  edcl_trans[0].mode = edcl_mode_read;
-  edcl_trans[0].ptr = (volatile uint32_t*)(8<<20);
-  return cnt;
-}
-
-void queue_write(volatile uint32_t *const sd_ptr, uint32_t val, int flush)
- {
-   struct etrans tmp;
-#if 0
-   flush = 1;
-#endif   
-   tmp.mode = edcl_mode_write;
-   tmp.ptr = sd_ptr;
-   tmp.val = val;
-   edcl_trans[edcl_cnt++] = tmp;
-   if (flush || (edcl_cnt==edcl_max-1))
-     {
-       queue_flush();
-     }
-#ifdef VERBOSE  
-   printf("queue_write(%p, 0x%x);\n", tmp.ptr, tmp.val);
-#endif
- }
-
-uint32_t queue_read(volatile uint32_t * const sd_ptr)
- {
-   int cnt;
-   struct etrans tmp;
-   tmp.mode = edcl_mode_read;
-   tmp.ptr = sd_ptr;
-   tmp.val = 0xDEADBEEF;
-   edcl_trans[edcl_cnt++] = tmp;
-   cnt = queue_flush();
-   shared_read(shared_base+(cnt-2), 1, &tmp);
-#ifdef VERBOSE
-   printf("queue_read(%p, %p, 0x%x);\n", sd_ptr, tmp.ptr, tmp.val);
-#endif   
-   return tmp.val;
- }
-
-void queue_read_array(volatile uint32_t * const sd_ptr, uint32_t cnt, uint32_t iobuf[])
- {
-   int i, n, cnt2;
-   struct etrans tmp;
-   if (edcl_cnt+cnt >= edcl_max)
-     {
-     queue_flush();
-     }
-   for (i = 0; i < cnt; i++)
-     {
-       tmp.mode = edcl_mode_read;
-       tmp.ptr = sd_ptr+i;
-       tmp.val = 0xDEADBEEF;
-       edcl_trans[edcl_cnt++] = tmp;
-     }
-   cnt2 = queue_flush();
-   n = cnt2-1-cnt;
-   shared_read(shared_base+n, cnt, edcl_trans+n);
-   for (i = n; i < n+cnt; i++) iobuf[i-n] = edcl_trans[i].val;
- }
-
-#if 0
-uint32_t queue_block_read2(int i)
-{
-  uint32_t rslt = __be32_to_cpu(((volatile uint32_t *)(shared_base+1))[i]);
-  return rslt;
-}
-#endif
-
-int queue_block_read1(void)
-{
-   struct etrans tmp;
-   queue_flush();
-   tmp.mode = edcl_mode_block_read;
-   tmp.ptr = rxfifo_base;
-   tmp.val = 1;
-   shared_write(shared_base, 1, &tmp);
-   tmp.val = 0xDEADBEEF;
-   shared_write(shared_base+edcl_max, 1, &tmp);
-   do {
-    shared_read(shared_base, 1, &tmp);
-  } while (tmp.ptr);
-#ifdef VERBOSE3
-   printf("queue_block_read1 completed\n");
-#endif
-   return tmp.mode;
-}
-
-void rx_write_fifo(uint32_t data)
-{
-  queue_write(rxfifo_base, data, 0);
-}
-
-uint32_t rx_read_fifo(void)
-{
-  return queue_read(rxfifo_base);
-}
-
-void write_led(uint32_t data)
-{
-  volatile uint32_t * const led_base = (volatile uint32_t*)(7<<20);
-  queue_write(led_base, data, 1);
-}
-
-static void minion_console_putchar(unsigned char ch)
-{
-  static int addr_int = 0;
-  volatile uint32_t * const video_base = (volatile uint32_t*)(10<<20);
-  if (ch != 10) queue_write(video_base+addr_int, ch, 0);
-  else
-    {
-      while ((addr_int & 127) < 127)
-         {
-           queue_write(video_base+addr_int, ' ', 0);
-           addr_int++;
-         }
-    }
-  if (++addr_int >= 4096)
-    {
-      // this is where we would scroll
-      addr_int = 0;
-    }
-}
-
-int minion_console_printf (const char *fmt, ...)
-{
-  char buffer[99];
-  va_list va;
-  int i, rslt;
-  va_start(va, fmt);
-  rslt = vsnprintf(buffer, sizeof(buffer), fmt, va);
-  va_end(va);
-  for (i = 0; i < rslt; i++) minion_console_putchar(buffer[i]);
-  queue_flush();
-  return rslt;
-}
 
 void show_tdo(uint32_t *rslt)
 {
@@ -485,15 +265,7 @@ uint64_t *raw_read_data(int len)
   sprintf(lenbuf, "%d", (1+len)<<6);
   rslt = my_svf(SDR, lenbuf, "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
   assert(prev_addr == *rslt);
-  return rslt;
-}
-
-struct etrans *my_read_data(long addr, int len)
-{
-  uint64_t *rslt;
-  my_addr(0,1,0,addr);
-  rslt = raw_read_data(len*sizeof(struct etrans)/sizeof(uint32_t));
-  return (struct etrans *)(rslt+1);
+  return rslt+1;
 }
 
 void raw_write_data(int len, uint64_t *cnvptr)
@@ -521,27 +293,12 @@ void raw_write_data(int len, uint64_t *cnvptr)
   free(rslt);
 }
 
-void my_write_data(long addr, int len, struct etrans *iptr)
-{
-  int j;
-  uint64_t *rslt2, *rslt1 = (uint64_t *)iptr;
-  my_addr(0,1,1,addr);
-  raw_write_data(len*sizeof(struct etrans)/sizeof(uint64_t), rslt1);
-  my_addr(0,1,0,addr);
-  rslt2 = raw_read_data(len*sizeof(struct etrans)/sizeof(uint32_t));
-  for (j = 0; j < len*sizeof(struct etrans)/sizeof(uint64_t); j++)
-    {
-      if (rslt1[j] != rslt2[j+1])
-	printf("Memory test mismatch: %.16lX != %.16lX\n", rslt1[j], rslt2[j+1]);
-    }
-}
-
 void my_mem_test(int shft, long addr)
 {
   int i, j;
   for (i = 1; i < shft; i++)
     {
-      static const uint32_t pattern[] = {0xDEAD0000,0xBEEF0000,0xC0010000,0xF00D0000,0xAAAA0000,0x55550000,0x33330000,0xCCCC0000};
+      static const uint64_t pattern[] = {0xDEAD0000,0xBEEF0000,0xC0010000,0xF00D0000,0xAAAA0000,0x55550000,0x33330000,0xCCCC0000};
       uint64_t *rslt1, *rslt2;
       int len = 1 << i;
       // readout 2^i locations
@@ -554,10 +311,10 @@ void my_mem_test(int shft, long addr)
       rslt2 = raw_read_data(len);
       for (j = 0; j < len; j++)
 	{
-	  if (rslt1[j] != rslt2[j+1])
+	  if (rslt1[j] != rslt2[j])
 	    {
-	    printf("Memory test mismatch: %.16lX != %.16lX\n", rslt1[j], rslt2[j+1]);
-	    abort();
+	    printf("Memory test mismatch: %.16lX != %.16lX\n", rslt1[j], rslt2[j]);
+            //	    abort();
 	    }
 	}
     }
@@ -581,13 +338,7 @@ void my_jtag(void)
   my_addr(dbg_resume,0,0,shared_addr);
   //  my_mem_test(dbg_halt|dbg_clksel, prog_addr+0x100);
   //  my_mem_test(0, shared_addr+0x10);
-  my_mem_test(2, shared_addr);
-  write_led(0x55);
-  minion_console_printf("lowRISC was here\n");
-  for (i = 0; i < 10; i++)
-    {
-      minion_console_printf("%d! = %d\n", i, fact(i));
-    }
+  my_mem_test(4, shared_addr);
   svf_free();
 }
 
