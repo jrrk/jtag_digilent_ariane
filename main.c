@@ -3,6 +3,7 @@
 #endif
 
 #include <helper/time_support.h>
+#include <stdlib.h>
 
 #include "target/target.h"
 #include <jtag/interface.h>
@@ -205,8 +206,120 @@ int my_command_init(int verbose)
   return 0;
 }
 
-enum {dbg_req = 1, dbg_resume = 2, dbg_halt = 4, dbg_clksel = 8, dbg_unused = 16};
-enum {prog_addr = 0, data_addr = 0x100000, shared_addr = 0x800000, debug_addr = 0xF00000};
+enum {wr = 1L << 32,
+      inc = 1L << 33,
+      dbg_req = 1L<<34, dbg_resume = 2L<<34, dbg_halt = 4L<<34, dbg_fetch = 8L<<34};
+
+enum {prog_addr = 0, data_addr = 0x100000, shared_addr = 0x800000, debug_addr = 0xF00000,
+      dummy_addr = 0x400000};
+
+typedef enum {
+        DBG_CTRL     = 0x0,
+        DBG_HIT      = 0x8,
+        DBG_IE       = 0x10,
+        DBG_CAUSE    = 0x18,
+
+        BP_CTRL0     = 0x80,
+        BP_DATA0     = 0x88,
+        BP_CTRL1     = 0x90,
+        BP_DATA1     = 0x98,
+        BP_CTRL2     = 0xA0,
+        BP_DATA2     = 0xA8,
+        BP_CTRL3     = 0xB0,
+        BP_DATA3     = 0xB8,
+        BP_CTRL4     = 0xC0,
+        BP_DATA4     = 0xC8,
+        BP_CTRL5     = 0xD0,
+        BP_DATA5     = 0xD8,
+        BP_CTRL6     = 0xE0,
+        BP_DATA6     = 0xE8,
+        BP_CTRL7     = 0xF0,
+        BP_DATA7     = 0xF8,
+
+        DBG_NPC      = 0x2000,
+        DBG_PPC      = 0x2008,
+        DBG_GPR      = 0x400,
+
+        // CSRs 0x4000-0xBFFF
+        DBG_CSR_U0   = 0x8000,
+        DBG_CSR_U1   = 0x9000,
+        DBG_CSR_S0   = 0xA000,
+        DBG_CSR_S1   = 0xB000,
+        DBG_CSR_H0   = 0xC000,
+        DBG_CSR_H1   = 0xD000,
+        DBG_CSR_M0   = 0xE000,
+        DBG_CSR_M1   = 0xF000
+    } debug_reg_t;
+
+// ---------------------
+// Performance Counters
+// ---------------------
+
+enum {
+    PERF_L1_ICACHE_MISS = 0x0,     // L1 Instr Cache Miss
+    PERF_L1_DCACHE_MISS = 0x1,     // L1 Data Cache Miss
+    PERF_ITLB_MISS      = 0x2,     // ITLB Miss
+    PERF_DTLB_MISS      = 0x3,     // DTLB Miss
+    PERF_LOAD           = 0x4,     // Loads
+    PERF_STORE          = 0x5,     // Stores
+    PERF_EXCEPTION      = 0x6,     // Taken exceptions
+    PERF_EXCEPTION_RET  = 0x7,     // Exception return
+    PERF_BRANCH_JUMP    = 0x8,     // Software change of PC
+    PERF_CALL           = 0x9,     // Procedure call
+    PERF_RET            = 0xA,     // Procedure Return
+    PERF_MIS_PREDICT    = 0xB};    // Branch mis-predicted
+
+typedef enum {
+        // Supervisor Mode CSRs
+        CSR_SSTATUS        = 0x100,
+        CSR_SIE            = 0x104,
+        CSR_STVEC          = 0x105,
+        CSR_SCOUNTEREN     = 0x106,
+        CSR_SSCRATCH       = 0x140,
+        CSR_SEPC           = 0x141,
+        CSR_SCAUSE         = 0x142,
+        CSR_STVAL          = 0x143,
+        CSR_SIP            = 0x144,
+        CSR_SATP           = 0x180,
+        // Machine Mode CSRs
+        CSR_MSTATUS        = 0x300,
+        CSR_MISA           = 0x301,
+        CSR_MEDELEG        = 0x302,
+        CSR_MIDELEG        = 0x303,
+        CSR_MIE            = 0x304,
+        CSR_MTVEC          = 0x305,
+        CSR_MCOUNTEREN     = 0x306,
+        CSR_MSCRATCH       = 0x340,
+        CSR_MEPC           = 0x341,
+        CSR_MCAUSE         = 0x342,
+        CSR_MTVAL          = 0x343,
+        CSR_MIP            = 0x344,
+        CSR_MVENDORID      = 0xF11,
+        CSR_MARCHID        = 0xF12,
+        CSR_MIMPID         = 0xF13,
+        CSR_MHARTID        = 0xF14,
+        CSR_MCYCLE         = 0xB00,
+        CSR_MINSTRET       = 0xB02,
+        CSR_DCACHE         = 0x701,
+        CSR_ICACHE         = 0x700,
+        // Counters and Timers
+        CSR_CYCLE          = 0xC00,
+        CSR_TIME           = 0xC01,
+        CSR_INSTRET        = 0xC02,
+        // Performance counters
+        CSR_L1_ICACHE_MISS = PERF_L1_ICACHE_MISS + 0xC03,
+        CSR_L1_DCACHE_MISS = PERF_L1_DCACHE_MISS + 0xC03,
+        CSR_ITLB_MISS      = PERF_ITLB_MISS      + 0xC03,
+        CSR_DTLB_MISS      = PERF_DTLB_MISS      + 0xC03,
+        CSR_LOAD           = PERF_LOAD           + 0xC03,
+        CSR_STORE          = PERF_STORE          + 0xC03,
+        CSR_EXCEPTION      = PERF_EXCEPTION      + 0xC03,
+        CSR_EXCEPTION_RET  = PERF_EXCEPTION_RET  + 0xC03,
+        CSR_BRANCH_JUMP    = PERF_BRANCH_JUMP    + 0xC03,
+        CSR_CALL           = PERF_CALL           + 0xC03,
+        CSR_RET            = PERF_RET            + 0xC03,
+        CSR_MIS_PREDICT    = PERF_MIS_PREDICT    + 0xC03
+    } csr_reg_t;
 
 static int tstcnt;
 static long prev_addr;
@@ -214,7 +327,7 @@ static long prev_addr;
 /* shared address space pointer (appears at 0x800000 in minion address map */
 volatile static struct etrans *shared_base;
 volatile uint32_t * const rxfifo_base = (volatile uint32_t*)(4<<20);
-void my_addr(long dbg, long inc, long wr, long addr);
+void my_addr(long addr);
 uint64_t *raw_read_data(int len);
 void raw_write_data(int len, uint64_t *ibuf);
 
@@ -225,10 +338,12 @@ void show_tdo(uint32_t *rslt)
 	      printf("%.8X%c", rslt[j], j?':':'\n');
 }
 
-void my_addr(long dbg, long inc, long wr, long addr)
+static uint64_t dbg_flag, inc_flag, wr_flag;
+
+void my_addr(long addr)
 {
   char addrbuf[20];
-  sprintf(addrbuf, "(%lX)", (dbg<<34)|(inc<<33)|(wr<<32)|addr);
+  sprintf(addrbuf, "(%lX)", dbg_flag|inc_flag|wr_flag|addr);
   // select address reg
   my_svf(SIR, "6", "TDI", "(03)", NULL);
   // auto-inc on
@@ -278,21 +393,31 @@ void raw_write_data(int len, uint64_t *cnvptr)
   free(rslt);
 }
 
+uint64_t rand64(void)
+{
+  uint32_t rslt[2];
+  rslt[0] = mrand48();
+  rslt[1] = mrand48();
+  return *(uint64_t *)rslt;
+}
+
 void my_mem_test(int shft, long addr)
 {
   int i, j;
+  srand48(time(0));
   for (i = 1; i < shft; i++)
     {
-      static const uint64_t pattern[] = {0xDEAD0000,0xBEEF0000,0xC0010000,0xF00D0000,0xAAAA0000,0x55550000,0x33330000,0xCCCC0000};
       uint64_t *rslt1, *rslt2;
       int len = 1 << i;
-      // readout 2^i locations
-      my_addr(0,1,0,addr);
       rslt1 = calloc(len, sizeof(uint64_t));
-      for (j = 0; j < len; j++) rslt1[j] = (pattern[(j>>4)&7]<<((j>>7)<<2)) | (1 << (j&15));
-      my_addr(0,1,1,addr);
+      for (j = 0; j < len; j++) rslt1[j] = rand64();
+      inc_flag = inc;
+      wr_flag = wr;
+      my_addr(addr);
       raw_write_data(len, rslt1);
-      my_addr(0,1,0,addr);
+      inc_flag = inc;
+      wr_flag = 0;
+      my_addr(addr);
       rslt2 = raw_read_data(len);
       for (j = 0; j < len; j++)
 	{
@@ -307,20 +432,82 @@ void my_mem_test(int shft, long addr)
     }
 }
 
+const char *dbgnam(int reg)
+{
+  switch(reg)
+    {
+      case DBG_CTRL    : return "DBG_CTRL    ";
+      case DBG_HIT     : return "DBG_HIT     ";
+      case DBG_IE      : return "DBG_IE      ";
+      case DBG_CAUSE   : return "DBG_CAUSE   ";
+
+      case BP_CTRL0    : return "BP_CTRL0    ";
+      case BP_DATA0    : return "BP_DATA0    ";
+      case BP_CTRL1    : return "BP_CTRL1    ";
+      case BP_DATA1    : return "BP_DATA1    ";
+      case BP_CTRL2    : return "BP_CTRL2    ";
+      case BP_DATA2    : return "BP_DATA2    ";
+      case BP_CTRL3    : return "BP_CTRL3    ";
+      case BP_DATA3    : return "BP_DATA3    ";
+      case BP_CTRL4    : return "BP_CTRL4    ";
+      case BP_DATA4    : return "BP_DATA4    ";
+      case BP_CTRL5    : return "BP_CTRL5    ";
+      case BP_DATA5    : return "BP_DATA5    ";
+      case BP_CTRL6    : return "BP_CTRL6    ";
+      case BP_DATA6    : return "BP_DATA6    ";
+      case BP_CTRL7    : return "BP_CTRL7    ";
+      case BP_DATA7    : return "BP_DATA7    ";
+
+      case DBG_NPC     : return "DBG_NPC     ";
+      case DBG_PPC     : return "DBG_PPC     ";
+      case DBG_GPR     : return "DBG_GPR     ";
+
+        // CSRs 4000-0xBFFF
+
+      case DBG_CSR_U0  : return "DBG_CSR_U0  ";
+      case DBG_CSR_U1  : return "DBG_CSR_U1  ";
+      case DBG_CSR_S0  : return "DBG_CSR_S0  ";
+      case DBG_CSR_S1  : return "DBG_CSR_S1  ";
+      case DBG_CSR_H0  : return "DBG_CSR_H0  ";
+      case DBG_CSR_H1  : return "DBG_CSR_H1  ";
+      case DBG_CSR_M0  : return "DBG_CSR_M0  ";
+      case DBG_CSR_M1  : return "DBG_CSR_M1  ";
+      default: return "???";
+       }
+}
+
 void my_jtag(void)
 {
-  int i;
-  svf_init();
-  my_svf(TRST, "OFF", NULL);
-  my_svf(ENDIR, "IDLE", NULL);
-  my_svf(ENDDR, "IDLE", NULL);
-  my_svf(STATE, "RESET", NULL);
-  my_svf(STATE, "IDLE", NULL);
-  my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
-  my_addr(dbg_resume,0,0,shared_addr);
-  //  my_mem_test(dbg_halt|dbg_clksel, prog_addr+0x100);
-  //  my_mem_test(0, shared_addr+0x10);
-  my_mem_test(6, shared_addr);
+  int i, len = 0x10000/8;
+  uint64_t *rslt1, *rsltc, *rsltd, ctrl;
+  dbg_flag = dbg_fetch|dbg_req;
+  // Try to set debug request
+  ctrl = -1;
+  inc_flag = 0;
+  wr_flag = wr;
+  my_addr(debug_addr+DBG_CTRL);
+  raw_write_data(1, &ctrl);
+  wr_flag = 0;
+  rsltc = raw_read_data(1);
+  // Try to set debug regs all on
+  rslt1 = calloc(len, sizeof(uint64_t));
+  memset(rslt1, -1, len*sizeof(uint64_t));
+  inc_flag = inc;
+  wr_flag = wr;
+  my_addr(debug_addr);
+  raw_write_data(len, rslt1);
+  // Readout to see what sticks
+  inc_flag = inc;
+  wr_flag = 0;
+  my_addr(debug_addr);
+  rsltd = raw_read_data(len);
+  for (i = 0; i < len; i++)
+    {
+      const char *reg = dbgnam(i*8);
+      if ((*reg != '?') || (rsltd[i] && ~rsltd[i]))
+        printf("addr[%.4X] %s = %.16lX\n", i*8, reg, rsltd[i]);
+    }
+  my_mem_test(3, debug_addr+DBG_GPR+16);
   svf_free();
 }
 
@@ -343,7 +530,15 @@ int main(int argc, const char **argv)
    }
  else
    {
+     svf_init();
+     my_svf(TRST, "OFF", NULL);
+     my_svf(ENDIR, "IDLE", NULL);
+     my_svf(ENDDR, "IDLE", NULL);
+     my_svf(STATE, "RESET", NULL);
+     my_svf(STATE, "IDLE", NULL);
+     my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
+     my_mem_test(12, shared_addr);
      my_jtag();
-     printf("Test passed = %d\n", tstcnt);
+     printf("Tests passed = %d\n", tstcnt);
    }
 }
