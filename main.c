@@ -74,7 +74,7 @@ struct target *get_current_target(struct command_context *cmd_ctx)
         return target;
 }
 
-  int my_command_init(void)
+int my_command_init(int verbose)
 {
   const char *argv_7[] = {"program", "<filename>", NULL};
   const char *argv_6[] = {"program", "default", NULL};
@@ -136,12 +136,13 @@ struct target *get_current_target(struct command_context *cmd_ctx)
   my_command.argc = 2;
   my_command.argv = argv_7;
   handle_help_add_command(&my_command);
-#if 1
-  my_command.name = "debug_level";
-  my_command.argc = 1;
-  my_command.argv = argv2;
-  handle_debug_level_command(&my_command);
-#endif  
+  if (verbose)
+    {
+      my_command.name = "debug_level";
+      my_command.argc = 1;
+      my_command.argv = argv2;
+      handle_debug_level_command(&my_command);
+    }
   my_command.name = "interface";
   my_command.argc = 1;
   my_command.argv = argv3;
@@ -207,25 +208,7 @@ struct target *get_current_target(struct command_context *cmd_ctx)
 enum {dbg_req = 1, dbg_resume = 2, dbg_halt = 4, dbg_clksel = 8, dbg_unused = 16};
 enum {prog_addr = 0, data_addr = 0x100000, shared_addr = 0x800000, debug_addr = 0xF00000};
 
-enum edcl_mode {
-  edcl_mode_unknown,
-  edcl_mode_read,
-  edcl_mode_write,
-  edcl_mode_block_read,
-  edcl_mode_bootstrap,
-  edcl_max=256};
-
-#pragma pack(4)
-
-static struct etrans {
-  enum edcl_mode mode;
-  volatile uint32_t *ptr;
-  uint32_t val;
-} edcl_trans[edcl_max+1];
-
-#pragma pack()
-
-static int edcl_cnt;
+static int tstcnt;
 static long prev_addr;
 
 /* shared address space pointer (appears at 0x800000 in minion address map */
@@ -289,6 +272,8 @@ void raw_write_data(int len, uint64_t *cnvptr)
     {
       if (cnvptr[j] != rslt[j+1])
 	printf("Write jtag chain mismatch: %.16lX != %.16lX\n", cnvptr[j], rslt[j+1]);
+      else
+        ++tstcnt;
     }
   free(rslt);
 }
@@ -303,7 +288,7 @@ void my_mem_test(int shft, long addr)
       int len = 1 << i;
       // readout 2^i locations
       my_addr(0,1,0,addr);
-      rslt1 = raw_read_data(len);
+      rslt1 = calloc(len, sizeof(uint64_t));
       for (j = 0; j < len; j++) rslt1[j] = (pattern[(j>>4)&7]<<((j>>7)<<2)) | (1 << (j&15));
       my_addr(0,1,1,addr);
       raw_write_data(len, rslt1);
@@ -314,15 +299,12 @@ void my_mem_test(int shft, long addr)
 	  if (rslt1[j] != rslt2[j])
 	    {
 	    printf("Memory test mismatch: %.16lX != %.16lX\n", rslt1[j], rslt2[j]);
-            //	    abort();
+            abort();
 	    }
+          else
+            ++tstcnt;
 	}
     }
-}
-
-int fact(int n)
-{
-  return n > 0 ? n * fact(n-1) : 1;
 }
 
 void my_jtag(void)
@@ -338,13 +320,19 @@ void my_jtag(void)
   my_addr(dbg_resume,0,0,shared_addr);
   //  my_mem_test(dbg_halt|dbg_clksel, prog_addr+0x100);
   //  my_mem_test(0, shared_addr+0x10);
-  my_mem_test(4, shared_addr);
+  my_mem_test(6, shared_addr);
   svf_free();
 }
 
 int main(int argc, const char **argv)
 {
-  my_command_init();
+  int verbose = 0;
+  if (argc == 2 && !strcmp(argv[1], "-v"))
+    {
+    verbose = 1;
+    --argc; ++argv;
+    }
+  my_command_init(verbose);
   if (argc > 1)
    {
      my_command.name = "svf";
@@ -356,5 +344,6 @@ int main(int argc, const char **argv)
  else
    {
      my_jtag();
+     printf("Test passed = %d\n", tstcnt);
    }
 }
