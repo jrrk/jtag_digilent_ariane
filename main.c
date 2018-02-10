@@ -210,7 +210,7 @@ enum {wr = 1L << 32,
       inc = 1L << 33,
       dbg_req = 1L<<34, dbg_resume = 2L<<34, dbg_halt = 4L<<34, dbg_fetch = 8L<<34};
 
-enum {prog_addr = 0, data_addr = 0x100000, shared_addr = 0x800000, debug_addr = 0xF00000,
+enum {prog_addr = 0, data_addr = 0x100000, shared_addr = 0x800000, debug_addr = 0xFFF00000,
       dummy_addr = 0x400000};
 
 typedef enum {
