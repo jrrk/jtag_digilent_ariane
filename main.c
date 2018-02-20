@@ -512,15 +512,19 @@ void jtag_poke(int addr, uint64_t data)
   inc_flag = 0;
   wr_flag = wr;
   my_addr(addr);
+  printf("jtag_poke(%X, %lX);\n", addr, data);
   raw_write_data(1, &data);
 }
 
 uint64_t jtag_peek(int addr)
 {
+  uint64_t retval;
   inc_flag = 0;
   wr_flag = 0;
   my_addr(addr);
-  return *raw_read_data(1);
+  retval = *raw_read_data(1);
+  printf("jtag_peek(%X) => %lX;\n", addr, retval);
+  return retval;
 }
 
 void verify_poke(int addr, uint64_t data)
