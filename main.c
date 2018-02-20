@@ -210,8 +210,7 @@ enum {wr = 1L << 32,
       inc = 1L << 33,
       dbg_req = 1L<<34, dbg_resume = 2L<<34, dbg_halt = 4L<<34, dbg_fetch = 8L<<34};
 
-enum {prog_addr = 0, data_addr = 0x100000, shared_addr = 0x800000, debug_addr = 0xFFF00000,
-      dummy_addr = 0x400000};
+enum {status_addr = 0x600000, burst_addr = 0x700000, shared_addr = 0x800000, debug_addr = 0xFFF00000};
 
 typedef enum {
         DBG_CTRL     = 0x0,
@@ -324,9 +323,6 @@ typedef enum {
 static int tstcnt;
 static long prev_addr;
 
-/* shared address space pointer (appears at 0x800000 in minion address map */
-volatile static struct etrans *shared_base;
-volatile uint32_t * const rxfifo_base = (volatile uint32_t*)(4<<20);
 void my_addr(long addr);
 uint64_t *raw_read_data(int len);
 void raw_write_data(int len, uint64_t *ibuf);
@@ -511,6 +507,78 @@ void my_jtag(void)
   svf_free();
 }
 
+void jtag_poke(int addr, uint64_t data)
+{
+  inc_flag = 0;
+  wr_flag = wr;
+  my_addr(addr);
+  raw_write_data(1, &data);
+}
+
+uint64_t jtag_peek(int addr)
+{
+  inc_flag = 0;
+  wr_flag = 0;
+  my_addr(addr);
+  return *raw_read_data(1);
+}
+
+void verify_poke(int addr, uint64_t data)
+{
+  uint64_t rslt;
+  jtag_poke(addr, data);
+  rslt = jtag_peek(addr);
+  if (data != rslt)
+    {
+      printf("JTAG verify mismatch: %.16lX != %.16lX\n", data, rslt);
+    }
+}
+
+void axi_test(void)
+{
+  uint32_t axi_addr = 0;
+  uint64_t mask0, mask1, maskgo, rslt2, status;
+  uint64_t burst_reset = 1, burst_go = 1, burst_inc = 0, burst_rnw = 1, burst_size = 1, burst_length = 2;
+  mask0 = ((burst_inc&1)<<48)|((burst_rnw&1)<<47)|((burst_size&0x7F)<<40)|((burst_length&0xFF)<<32)|(axi_addr&0xFFFFFFFF);
+  mask1 = ((burst_reset&1)<<50)|mask0;
+  maskgo = ((burst_go&1)<<49)|mask1;
+  verify_poke(burst_addr, mask0);  
+  verify_poke(burst_addr, mask1);  
+  verify_poke(burst_addr, maskgo);  
+  verify_poke(burst_addr, mask1);  
+  status = jtag_peek(status_addr);
+  printf("Wrap address: %.16lX\n", status&0xFFFFFFFF);
+  switch( (status>>32)&7)
+    {
+    case 000: printf("State: reset\n"); break;
+    case 001: printf("State: idle\n"); break;
+    case 002: printf("State: prepare\n"); break;
+    case 003: printf("State: read_transaction\n"); break;
+    case 004: printf("State: write_transaction\n"); break;
+    case 005: printf("State: error_detected\n"); break;
+    case 006: printf("State: complete\n"); break;
+    default:  printf("State: unknown\n"); break;
+    }
+  printf("Done: %lX\n", (status>>35)&1);
+  printf("Busy: %lX\n", (status>>36)&1);
+  printf("Error: %lX\n", (status>>37)&1);
+  printf("Resetn: %lX\n", (status>>38)&1);
+  printf("start_write_response_transaction: %lX\n", (status>>39)&1);
+  printf("start_write_data_transaction: %lX\n", (status>>40)&1);
+  printf("start_write_address_transaction: %lX\n", (status>>41)&1);
+  printf("start_read_data_transaction: %lX\n", (status>>42)&1);
+  printf("start_read_address_transaction: %lX\n", (status>>43)&1);
+  switch( (status>>44)&7)
+    {
+    case 000: printf("Read address channel state: reset\n"); break;
+    case 001: printf("Read address channel state: idle\n"); break;
+    case 002: printf("Read address channel state: running\n"); break;
+    case 003: printf("Read address channel state: error_detected\n"); break;
+    case 004: printf("Read address channel state: complete\n"); break;
+    default:  printf("Read address channel state: unknown\n"); break;
+    }
+ }
+
 int main(int argc, const char **argv)
 {
   int verbose = 0;
@@ -538,7 +606,8 @@ int main(int argc, const char **argv)
      my_svf(STATE, "IDLE", NULL);
      my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
      my_mem_test(12, shared_addr);
-     my_jtag();
      printf("Tests passed = %d\n", tstcnt);
+     //     my_jtag();
+     axi_test();
    }
 }
