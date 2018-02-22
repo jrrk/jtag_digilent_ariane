@@ -17,6 +17,7 @@
 #include "interfaces.h"
 #include <transport/transport.h>
 #include <jtag/jtag.h>
+#include "dump.h"
 
 extern struct jtag_interface ftdi_interface;
 
@@ -206,11 +207,12 @@ int my_command_init(int verbose)
   return 0;
 }
 
-enum {wr = 1L << 32,
-      inc = 1L << 33,
-      dbg_req = 1L<<34, dbg_resume = 2L<<34, dbg_halt = 4L<<34, dbg_fetch = 8L<<34};
+typedef enum {rd_mode = 0L, wr_mode = 1L << 32, inc_mode = 1L << 33,
+      dbg_req = 1L<<34, dbg_resume = 2L<<34, dbg_halt = 4L<<34, dbg_fetch = 8L<<34} jtag_mode_t;
 
-enum {status_addr = 0x600000, burst_addr = 0x700000, shared_addr = 0x800000, debug_addr = 0xFFF00000};
+typedef enum {cap_addr = 0x300000,
+      proto_addr_lo = 0x400000, proto_addr_hi = 0x500000, status_addr = 0x600000, burst_addr = 0x700000,
+      shared_addr = 0x800000, cap_buf = 0x900000, debug_addr = 0xFFF00000} jtag_addr_t;
 
 typedef enum {
         DBG_CTRL     = 0x0,
@@ -323,9 +325,11 @@ typedef enum {
 static int tstcnt;
 static long prev_addr;
 
-void my_addr(long addr);
+void my_addr(jtag_addr_t addr);
 uint64_t *raw_read_data(int len);
+uint64_t *read_data(jtag_addr_t addr, int len);
 void raw_write_data(int len, uint64_t *ibuf);
+void write_data(jtag_addr_t addr, int len, uint64_t *ibuf);
 
 void show_tdo(uint32_t *rslt)
 {
@@ -334,9 +338,10 @@ void show_tdo(uint32_t *rslt)
 	      printf("%.8X%c", rslt[j], j?':':'\n');
 }
 
-static uint64_t dbg_flag, inc_flag, wr_flag;
+static jtag_mode_t dbg_flag, inc_flag, wr_flag;
+static int verbose = 0;
 
-void my_addr(long addr)
+void my_addr(jtag_addr_t addr)
 {
   char addrbuf[20];
   sprintf(addrbuf, "(%lX)", dbg_flag|inc_flag|wr_flag|addr);
@@ -360,6 +365,14 @@ uint64_t *raw_read_data(int len)
   rslt = my_svf(SDR, lenbuf, "TDI", "(0)", "TDO", "(0)", "MASK", "(0)", NULL);
   assert(prev_addr == *rslt);
   return rslt+1;
+}
+
+uint64_t *read_data(jtag_addr_t addr, int len)
+{
+  inc_flag = inc_mode;
+  wr_flag = 0;
+  my_addr(addr);
+  return raw_read_data(len);
 }
 
 void raw_write_data(int len, uint64_t *cnvptr)
@@ -389,6 +402,14 @@ void raw_write_data(int len, uint64_t *cnvptr)
   free(rslt);
 }
 
+void write_data(jtag_addr_t addr, int len, uint64_t *cnvptr)
+{
+  inc_flag = inc_mode;
+  wr_flag = wr_mode;
+  my_addr(addr);
+  raw_write_data(len, cnvptr);
+}
+
 uint64_t rand64(void)
 {
   uint32_t rslt[2];
@@ -407,14 +428,8 @@ void my_mem_test(int shft, long addr)
       int len = 1 << i;
       rslt1 = calloc(len, sizeof(uint64_t));
       for (j = 0; j < len; j++) rslt1[j] = rand64();
-      inc_flag = inc;
-      wr_flag = wr;
-      my_addr(addr);
-      raw_write_data(len, rslt1);
-      inc_flag = inc;
-      wr_flag = 0;
-      my_addr(addr);
-      rslt2 = raw_read_data(len);
+      write_data(addr, len, rslt1);
+      rslt2 = read_data(addr, len);
       for (j = 0; j < len; j++)
 	{
 	  if (rslt1[j] != rslt2[j])
@@ -471,59 +486,19 @@ const char *dbgnam(int reg)
       default: return "???";
        }
 }
-
-void my_jtag(void)
-{
-  int i, len = 0x10000/8;
-  uint64_t *rslt1, *rsltc, *rsltd, ctrl;
-  dbg_flag = dbg_fetch|dbg_req;
-  // Try to set debug request
-  ctrl = -1;
-  inc_flag = 0;
-  wr_flag = wr;
-  my_addr(debug_addr+DBG_CTRL);
-  raw_write_data(1, &ctrl);
-  wr_flag = 0;
-  rsltc = raw_read_data(1);
-  // Try to set debug regs all on
-  rslt1 = calloc(len, sizeof(uint64_t));
-  memset(rslt1, -1, len*sizeof(uint64_t));
-  inc_flag = inc;
-  wr_flag = wr;
-  my_addr(debug_addr);
-  raw_write_data(len, rslt1);
-  // Readout to see what sticks
-  inc_flag = inc;
-  wr_flag = 0;
-  my_addr(debug_addr);
-  rsltd = raw_read_data(len);
-  for (i = 0; i < len; i++)
-    {
-      const char *reg = dbgnam(i*8);
-      if ((*reg != '?') || (rsltd[i] && ~rsltd[i]))
-        printf("addr[%.4X] %s = %.16lX\n", i*8, reg, rsltd[i]);
-    }
-  my_mem_test(3, debug_addr+DBG_GPR+16);
-  svf_free();
-}
-
 void jtag_poke(int addr, uint64_t data)
 {
-  inc_flag = 0;
-  wr_flag = wr;
-  my_addr(addr);
-  printf("jtag_poke(%X, %lX);\n", addr, data);
-  raw_write_data(1, &data);
+  if (verbose)
+    printf("jtag_poke(%X, %lX);\n", addr, data);
+  write_data(addr, 1, &data);
 }
 
 uint64_t jtag_peek(int addr)
 {
   uint64_t retval;
-  inc_flag = 0;
-  wr_flag = 0;
-  my_addr(addr);
-  retval = *raw_read_data(1);
-  printf("jtag_peek(%X) => %lX;\n", addr, retval);
+  retval = *read_data(addr, 1);
+  if (verbose)
+    printf("jtag_peek(%X) => %lX;\n", addr, retval);
   return retval;
 }
 
@@ -538,20 +513,60 @@ void verify_poke(int addr, uint64_t data)
     }
 }
 
-void axi_test(void)
+void my_jtag(void)
 {
-  uint32_t axi_addr = 0;
-  uint64_t mask0, mask1, maskgo, rslt2, status;
-  uint64_t burst_reset = 1, burst_go = 1, burst_inc = 0, burst_rnw = 1, burst_size = 1, burst_length = 2;
-  mask0 = ((burst_inc&1)<<48)|((burst_rnw&1)<<47)|((burst_size&0x7F)<<40)|((burst_length&0xFF)<<32)|(axi_addr&0xFFFFFFFF);
-  mask1 = ((burst_reset&1)<<50)|mask0;
-  maskgo = ((burst_go&1)<<49)|mask1;
-  verify_poke(burst_addr, mask0);  
-  verify_poke(burst_addr, mask1);  
-  verify_poke(burst_addr, maskgo);  
-  verify_poke(burst_addr, mask1);  
-  status = jtag_peek(status_addr);
-  printf("Wrap address: %.16lX\n", status&0xFFFFFFFF);
+  int i, len = 0x10000/8;
+  uint64_t *rslt1, *rsltd, ctrl;
+  dbg_flag = dbg_fetch|dbg_req;
+  // Try to set debug request
+  ctrl = -1;
+  verify_poke(debug_addr+DBG_CTRL, ctrl);
+  // Try to set debug regs all on
+  rslt1 = calloc(len, sizeof(uint64_t));
+  memset(rslt1, -1, len*sizeof(uint64_t));
+  write_data(debug_addr, len, rslt1);
+  // Readout to see what sticks
+  inc_flag = inc_mode;
+  wr_flag = rd_mode;
+  my_addr(debug_addr);
+  rsltd = raw_read_data(len);
+  for (i = 0; i < len; i++)
+    {
+      const char *reg = dbgnam(i*8);
+      if ((*reg != '?') || (rsltd[i] && ~rsltd[i]))
+        printf("addr[%.4X] %s = %.16lX\n", i*8, reg, rsltd[i]);
+    }
+  my_mem_test(3, debug_addr+DBG_GPR+16);
+  svf_free();
+}
+
+typedef struct {  
+  uint64_t cap_rst; uint64_t wrap_rst; uint64_t reset;
+  uint64_t go; uint64_t inc; uint64_t rnw; uint64_t size; uint64_t length; uint64_t axi_addr;
+  } axi_rec_t;
+
+void axi_poke(axi_rec_t *burst)
+{
+  uint64_t mask = ((burst->cap_rst&1)<<52)|
+    ((burst->wrap_rst&1)<<51)|((burst->reset&1)<<50)|
+    ((burst->go&1)<<49)|((burst->inc&1)<<48)|((burst->rnw&1)<<47)|
+    ((burst->size&0x7F)<<40)|((burst->length&0xFF)<<32)|(burst->axi_addr&0xFFFFFFFF);
+  verify_poke(burst_addr, mask);  
+}
+
+void axi_counters(void)
+{
+  uint64_t status = jtag_peek(status_addr);
+  uint32_t wrapaddr = status&0xFFFFFFFF;
+  printf("Wrap address: %.08X\n", wrapaddr);
+  uint64_t capa = jtag_peek(cap_addr);
+  printf("Capture address: %.16lX\n", capa);
+}
+
+void axi_status(void)
+{
+  uint64_t status = jtag_peek(status_addr);
+  axi_counters();
   switch( (status>>32)&7)
     {
     case 000: printf("State: reset\n"); break;
@@ -572,7 +587,12 @@ void axi_test(void)
   printf("start_write_address_transaction: %lX\n", (status>>41)&1);
   printf("start_read_data_transaction: %lX\n", (status>>42)&1);
   printf("start_read_address_transaction: %lX\n", (status>>43)&1);
-  switch( (status>>44)&7)
+  printf("write_response_transaction_finished: %lX\n", (status>>44)&1);
+  printf("write_data_transaction_finished: %lX\n", (status>>45)&1);
+  printf("read_data_transaction_finished: %lX\n", (status>>46)&1);
+  printf("write_address_transaction_finished: %lX\n", (status>>47)&1);
+  printf("read_address_transaction_finished: %lX\n", (status>>48)&1);
+  switch( (status>>49)&7)
     {
     case 000: printf("Read address channel state: reset\n"); break;
     case 001: printf("Read address channel state: idle\n"); break;
@@ -581,11 +601,238 @@ void axi_test(void)
     case 004: printf("Read address channel state: complete\n"); break;
     default:  printf("Read address channel state: unknown\n"); break;
     }
- }
+  switch( (status>>52)&7)
+    {
+    case 000: printf("Write response channel state: reset\n"); break;
+    case 001: printf("Write response channel state: idle\n"); break;
+    case 002: printf("Write response channel state: running\n"); break;
+    case 003: printf("Write response channel state: success\n"); break;
+    case 004: printf("Write response channel state: error_detected\n"); break;
+    case 005: printf("Write response channel state: complete\n"); break;
+    default:  printf("Write response channel state: unknown\n"); break;
+    }
+  printf("Protocol checker assert: %lX\n", (status>>55)&1);
+  printf("Capture busy: %lX\n", (status>>56)&1);
+}
+
+void axi_proto_status(void)
+{
+  uint64_t status0 = jtag_peek(proto_addr_lo);
+  uint64_t status1 = jtag_peek(proto_addr_hi);
+  printf("Protocol checker status: %.16lX:%.16lX\n", status1, status0);
+}
+
+void axi_readout(long addr, int len)
+{
+  int j;
+  uint64_t *rslt = read_data(addr, len);
+  for (j = 0; j < len; j++)
+    {
+      printf("Memory readout[%d]: %.16lX\n", j, rslt[j]);
+    }
+}
+
+axi_t *dbg;
+uint64_t *cap_raw;
+int cap_offset;
+
+static uint64_t ext(int wid)
+{
+  int shift = cap_offset&63;
+  uint64_t retval;
+  uint64_t lo = cap_raw[cap_offset>>6];
+  uint64_t hi = (cap_raw[(cap_offset>>6)+1] << 32) | (lo >> 32);  
+  if (shift >= 32) // value is split across words (we assume width <= 32)
+    {
+      retval = hi >> (shift-32);
+    }
+  else
+    retval = lo >> shift;    
+  retval &= (1 << wid)-1;
+  cap_offset += wid;
+  return retval;
+}
+
+void axi_capture_status(void)
+{
+  int j;
+  uint64_t status = jtag_peek(cap_addr);
+  printf("Capture address: %.16lX\n", status);
+  int len = status+1;
+  cap_offset = 0;
+  cap_raw = read_data(cap_buf, len*4);
+  dbg = (axi_t *)calloc(len, sizeof(axi_t));
+  for (j = 0; j < len; j++)
+    {
+      uint64_t start_out;
+      dbg[j].ar_addr   = ext(32);
+      dbg[j].aw_addr   = ext(32);
+      dbg[j].r_data    = ext(32);
+      dbg[j].w_data    = ext(32);
+      dbg[j].b_ready   = ext(1);
+      dbg[j].b_id      = ext(4);
+      dbg[j].b_resp    = ext(2);
+      dbg[j].b_valid   = ext(1);
+      dbg[j].r_ready   = ext(1);
+      dbg[j].r_id      = ext(4);
+      dbg[j].r_last    = ext(1);
+      dbg[j].r_resp    = ext(2);
+      dbg[j].r_valid   = ext(1);
+      dbg[j].w_ready   = ext(1);
+      dbg[j].w_last    = ext(1);
+      dbg[j].w_strb    = ext(8);
+      dbg[j].w_valid   = ext(1);
+      dbg[j].ar_ready  = ext(1);
+      dbg[j].ar_id     = ext(4);
+      dbg[j].ar_qos    = ext(4);
+      dbg[j].ar_cache  = ext(4);
+      dbg[j].ar_lock   = ext(1);
+      dbg[j].ar_burst  = ext(2);
+      dbg[j].ar_size   = ext(3);
+      dbg[j].ar_len    = ext(8);
+      dbg[j].ar_region = ext(4);
+      dbg[j].ar_prot   = ext(3);
+      dbg[j].ar_valid  = ext(1);
+      dbg[j].aw_ready  = ext(1);
+      dbg[j].aw_id     = ext(4);
+      dbg[j].aw_qos    = ext(4);
+      dbg[j].aw_cache  = ext(4);
+      dbg[j].aw_lock   = ext(1);
+      dbg[j].aw_burst  = ext(2);
+      dbg[j].aw_size   = ext(3);
+      dbg[j].aw_len    = ext(8);
+      dbg[j].aw_region = ext(4);
+      dbg[j].aw_prot   = ext(3);
+      dbg[j].aw_valid  = ext(1);
+      dbg[j].error     = ext(1);
+      dbg[j].busy      = ext(1);
+      dbg[j].done      = ext(1);
+      dbg[j].strt_wrt  = ext(1);
+      dbg[j].strt_wdt  = ext(1);
+      dbg[j].strt_wat  = ext(1);
+      dbg[j].strt_rdt  = ext(1);
+      dbg[j].strt_rat  = ext(1);
+      dbg[j].wrt_fin   = ext(1);
+      dbg[j].wdt_fin   = ext(1);
+      dbg[j].rdt_fin   = ext(1);
+      dbg[j].wat_fin   = ext(1);
+      dbg[j].rat_fin   = ext(1);
+      dbg[j].unused    = ext(1);
+      dbg[j].address   = ext(6);
+      dbg[j].state_wrd = ext(3);
+      dbg[j].state     = ext(3);
+      dbg[j].state_rsp = ext(3);
+      dbg[j].unused2   = ext(1);
+      assert(cap_offset%256 == 0);
+    }
+  open_vcd();
+  for (j = 0; j < len; j++)
+    {
+      dump_rec(dbg+j);
+    }
+  close_vcd();
+}
+
+void axi_test(long addr, int rnw, int siz, int len)
+{
+  enum {sleep=100};
+  axi_rec_t burst;
+  if (verbose) printf("Reset...\n");
+  burst.cap_rst = 1;
+  burst.wrap_rst = 1;
+  burst.reset = 0;
+  burst.go = 0;
+  burst.inc = 0;
+  burst.rnw = rnw;
+  burst.size = siz;
+  burst.length = len;
+  burst.axi_addr = addr;
+  axi_poke(&burst);
+  usleep(sleep);
+  if (verbose) printf("Make idle...\n");
+  burst.reset = 1;
+  axi_poke(&burst);
+  usleep(sleep);
+  if (verbose) printf("Enable capture and wrap counters...\n");
+  burst.cap_rst = 0;
+  burst.wrap_rst = 0;
+  burst.reset = 1;
+  axi_poke(&burst);
+  usleep(sleep);
+  if (verbose) axi_counters();
+  if (verbose) printf("Go...\n");
+  burst.go = 1;
+  axi_poke(&burst);
+  usleep(sleep);
+  if (verbose)
+    {
+      axi_status();
+      axi_proto_status();
+      axi_capture_status();
+    }
+  burst.go = 0;
+  axi_poke(&burst);
+}
+
+#define HID_VGA 0x2000
+#define HID_LED 0x400F
+#define HID_DIP 0x401F
+
+// enum {scroll_start=0, base=0x40000000};
+enum {scroll_start=0, base=0x00000000};
+volatile uint32_t *const sd_base = (uint32_t *)(base+0x01010000);
+volatile uint32_t *const hid_vga_ptr = (uint32_t *)(base+0x01008000);
+const size_t eth = (base+0x01020000), hid = (base+0x01000000);
+static int addr_int = scroll_start;
+
+void axi_vga(const char *str)
+{
+     enum {line=64*4};
+     uint64_t *frambuf = calloc(line, sizeof(uint64_t));
+     long vga_addr = (long)hid_vga_ptr;
+     svf_init();
+     my_svf(TRST, "OFF", NULL);
+     my_svf(ENDIR, "IDLE", NULL);
+     my_svf(ENDDR, "IDLE", NULL);
+     my_svf(STATE, "RESET", NULL);
+     my_svf(STATE, "IDLE", NULL);
+     my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
+     my_mem_test(12, shared_addr);
+     printf("Tests passed = %d\n", tstcnt);
+     for (int l = 0; l < 16; l++)
+       {
+         if ((l < 7) || (l > 9))
+           {
+             for (int i = 0; i < line; i++)
+               frambuf[i] = '0' + i%10 + (l*16&0x3f);
+           }
+         else
+           {
+           memset(frambuf, ' ', line * sizeof(uint64_t));
+           if (l == 8)
+             {
+               int len = strlen(str);
+               for (int i = 0; i < len; i++)
+                 {
+                   frambuf[line/8+i-len/2] = str[i];
+                 }
+             }
+           }
+         write_data(shared_addr, line, frambuf);
+         axi_test(vga_addr+(l<<10)-8, 0, 8, 128); // Why -8 ?
+       }
+   }
+
+void axi_dipsw(void)
+{
+  axi_test(hid + HID_DIP*4, 1, 4, 1);
+  uint64_t dip = *read_data(shared_addr, 1);
+  printf("DIP SW: %.4lX\n", dip);
+  axi_test(hid + HID_LED*4, 0, 4, 1);
+}
 
 int main(int argc, const char **argv)
 {
-  int verbose = 0;
   if (argc == 2 && !strcmp(argv[1], "-v"))
     {
     verbose = 1;
@@ -600,18 +847,44 @@ int main(int argc, const char **argv)
      my_command.ctx = global_cmd_ctx;
      handle_svf_command(&my_command);
    }
- else
-   {
-     svf_init();
-     my_svf(TRST, "OFF", NULL);
-     my_svf(ENDIR, "IDLE", NULL);
-     my_svf(ENDDR, "IDLE", NULL);
-     my_svf(STATE, "RESET", NULL);
-     my_svf(STATE, "IDLE", NULL);
-     my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
-     my_mem_test(12, shared_addr);
-     printf("Tests passed = %d\n", tstcnt);
-     //     my_jtag();
-     axi_test();
-   }
+  else
+    {
+      axi_vga(" ** Hello JTAG Master ** ");
+      axi_dipsw();
+    }
+}
+
+extern void hid_init(void);
+extern void hid_console_putchar(unsigned char ch);
+extern void hid_send_string(const char *str);
+
+void hid_console_putchar(unsigned char ch)
+{
+  int lmt;
+  switch(ch)
+    {
+    case 8: case 127: if (addr_int & 127) hid_vga_ptr[--addr_int] = ' '; break;
+    case 13: addr_int = addr_int & -128; break;
+    case 10:
+      {
+        int lmt = (addr_int|127)+1;
+        while (addr_int < lmt) hid_vga_ptr[addr_int++] = ' ';
+        break;
+      }
+    default: hid_vga_ptr[addr_int++] = ch;
+    }
+  if (addr_int >= 4096-128)
+    {
+      // this is where we scroll
+      for (addr_int = 0; addr_int < 4096; addr_int++)
+        if (addr_int < 4096-128)
+          hid_vga_ptr[addr_int] = hid_vga_ptr[addr_int+128];
+        else
+          hid_vga_ptr[addr_int] = ' ';
+      addr_int = 4096-256;
+    }
+}
+
+void hid_send_string(const char *str) {
+  while (*str) hid_console_putchar(*str++);
 }

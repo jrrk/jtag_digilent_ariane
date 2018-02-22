@@ -7,3 +7,4 @@ jtag_dummy.ip_user_files
 jtag_dummy.runs
 jtag_dummy.sim
 jtag_dummy.srcs
+test.vcd
