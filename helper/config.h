@@ -50,7 +50,7 @@
 #define BUILD_JLINK o
 
 /* 0 if you don't want JTAG VPI. */
-#define BUILD_JTAG_VPI 0
+#define BUILD_JTAG_VPI 1
 
 /* Use the dummy minidriver. */
 /* #undef BUILD_MINIDRIVER_DUMMY */
@@ -74,7 +74,7 @@
 /* #undef BUILD_PRESTO */
 
 /* 0 if you don't want the Remote Bitbang JTAG driver. */
-#define BUILD_REMOTE_BITBANG 0
+#define BUILD_REMOTE_BITBANG 1
 
 /* 0 if you do not want the Raisonance RLink JTAG Programmer. */
 /* #undef BUILD_RLINK */

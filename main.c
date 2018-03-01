@@ -18,6 +18,7 @@
 #include <transport/transport.h>
 #include <jtag/jtag.h>
 #include "dump.h"
+#include "main.h"
 
 extern struct jtag_interface ftdi_interface;
 
@@ -95,6 +96,8 @@ int my_command_init(int verbose)
   const char *argv8[] = {"none", NULL};
   const char *argv9[] = {"10000", NULL};
   const char *argv10[] = {NULL};
+  const char *interface = getenv("INTERFACE");
+  char const *argvi[] = {interface, NULL};
   log_init();
   jtag_constructor();
   aice_constructor();
@@ -147,24 +150,53 @@ int my_command_init(int verbose)
     }
   my_command.name = "interface";
   my_command.argc = 1;
-  my_command.argv = argv3;
+  my_command.argv = interface ? argvi : argv3;
   handle_interface_command (&my_command);
-  my_command.name = "ftdi_device_desc";
-  my_command.argc = 1;
-  my_command.argv = argv4;
-  ftdi_handle_device_desc_command(&my_command);
-  my_command.name = "ftdi_vid_pid";
-  my_command.argc = 2;
-  my_command.argv = argv5;
-  ftdi_handle_vid_pid_command(&my_command);
-  my_command.name = "ftdi_channel";
-  my_command.argc = 1;
-  my_command.argv = argv6; 
-  ftdi_handle_channel_command(&my_command);
-  my_command.name = "ftdi_layout_init";
-  my_command.argc = 2;
-  my_command.argv = argv7; 
-  ftdi_handle_layout_init_command(&my_command);
+  if (interface && !strcmp(interface, "remote_bitbang"))
+    {
+      my_command.name = "remote_bitbang_host";
+      my_command.argc = 1;
+      my_command.argv = argvi;
+      argvi[0] = "localhost";
+      remote_bitbang_handle_remote_bitbang_host_command(&my_command);      
+      my_command.name = "remote_bitbang_port";
+      my_command.argc = 1;
+      my_command.argv = argvi;
+      argvi[0] = "4242";
+      remote_bitbang_handle_remote_bitbang_port_command(&my_command);      
+    }
+  else if (interface && !strcmp(interface, "jtag_vpi"))
+    {
+      my_command.name = "jtag_vpi_set_address";
+      my_command.argc = 1;
+      my_command.argv = argvi;
+      argvi[0] = "127.0.0.1";
+      jtag_vpi_set_address(&my_command);      
+      my_command.name = "jtag_vpi_set_port";
+      my_command.argc = 1;
+      my_command.argv = argvi;
+      argvi[0] = "5555";
+      jtag_vpi_set_port(&my_command);      
+    }
+  else
+    {
+      my_command.name = "ftdi_device_desc";
+      my_command.argc = 1;
+      my_command.argv = argv4;
+      ftdi_handle_device_desc_command(&my_command);
+      my_command.name = "ftdi_vid_pid";
+      my_command.argc = 2;
+      my_command.argv = argv5;
+      ftdi_handle_vid_pid_command(&my_command);
+      my_command.name = "ftdi_channel";
+      my_command.argc = 1;
+      my_command.argv = argv6; 
+      ftdi_handle_channel_command(&my_command);
+      my_command.name = "ftdi_layout_init";
+      my_command.argc = 2;
+      my_command.argv = argv7; 
+      ftdi_handle_layout_init_command(&my_command);
+    }
   my_command.name = "reset_config";
   my_command.argc = 1;
   my_command.argv = argv8; 
@@ -207,121 +239,6 @@ int my_command_init(int verbose)
   return 0;
 }
 
-typedef enum {rd_mode = 0L, wr_mode = 1L << 32, inc_mode = 1L << 33,
-      dbg_req = 1L<<34, dbg_resume = 2L<<34, dbg_halt = 4L<<34, dbg_fetch = 8L<<34} jtag_mode_t;
-
-typedef enum {cap_addr = 0x300000,
-      proto_addr_lo = 0x400000, proto_addr_hi = 0x500000, status_addr = 0x600000, burst_addr = 0x700000,
-      shared_addr = 0x800000, cap_buf = 0x900000, debug_addr = 0xFFF00000} jtag_addr_t;
-
-typedef enum {
-        DBG_CTRL     = 0x0,
-        DBG_HIT      = 0x8,
-        DBG_IE       = 0x10,
-        DBG_CAUSE    = 0x18,
-
-        BP_CTRL0     = 0x80,
-        BP_DATA0     = 0x88,
-        BP_CTRL1     = 0x90,
-        BP_DATA1     = 0x98,
-        BP_CTRL2     = 0xA0,
-        BP_DATA2     = 0xA8,
-        BP_CTRL3     = 0xB0,
-        BP_DATA3     = 0xB8,
-        BP_CTRL4     = 0xC0,
-        BP_DATA4     = 0xC8,
-        BP_CTRL5     = 0xD0,
-        BP_DATA5     = 0xD8,
-        BP_CTRL6     = 0xE0,
-        BP_DATA6     = 0xE8,
-        BP_CTRL7     = 0xF0,
-        BP_DATA7     = 0xF8,
-
-        DBG_NPC      = 0x2000,
-        DBG_PPC      = 0x2008,
-        DBG_GPR      = 0x400,
-
-        // CSRs 0x4000-0xBFFF
-        DBG_CSR_U0   = 0x8000,
-        DBG_CSR_U1   = 0x9000,
-        DBG_CSR_S0   = 0xA000,
-        DBG_CSR_S1   = 0xB000,
-        DBG_CSR_H0   = 0xC000,
-        DBG_CSR_H1   = 0xD000,
-        DBG_CSR_M0   = 0xE000,
-        DBG_CSR_M1   = 0xF000
-    } debug_reg_t;
-
-// ---------------------
-// Performance Counters
-// ---------------------
-
-enum {
-    PERF_L1_ICACHE_MISS = 0x0,     // L1 Instr Cache Miss
-    PERF_L1_DCACHE_MISS = 0x1,     // L1 Data Cache Miss
-    PERF_ITLB_MISS      = 0x2,     // ITLB Miss
-    PERF_DTLB_MISS      = 0x3,     // DTLB Miss
-    PERF_LOAD           = 0x4,     // Loads
-    PERF_STORE          = 0x5,     // Stores
-    PERF_EXCEPTION      = 0x6,     // Taken exceptions
-    PERF_EXCEPTION_RET  = 0x7,     // Exception return
-    PERF_BRANCH_JUMP    = 0x8,     // Software change of PC
-    PERF_CALL           = 0x9,     // Procedure call
-    PERF_RET            = 0xA,     // Procedure Return
-    PERF_MIS_PREDICT    = 0xB};    // Branch mis-predicted
-
-typedef enum {
-        // Supervisor Mode CSRs
-        CSR_SSTATUS        = 0x100,
-        CSR_SIE            = 0x104,
-        CSR_STVEC          = 0x105,
-        CSR_SCOUNTEREN     = 0x106,
-        CSR_SSCRATCH       = 0x140,
-        CSR_SEPC           = 0x141,
-        CSR_SCAUSE         = 0x142,
-        CSR_STVAL          = 0x143,
-        CSR_SIP            = 0x144,
-        CSR_SATP           = 0x180,
-        // Machine Mode CSRs
-        CSR_MSTATUS        = 0x300,
-        CSR_MISA           = 0x301,
-        CSR_MEDELEG        = 0x302,
-        CSR_MIDELEG        = 0x303,
-        CSR_MIE            = 0x304,
-        CSR_MTVEC          = 0x305,
-        CSR_MCOUNTEREN     = 0x306,
-        CSR_MSCRATCH       = 0x340,
-        CSR_MEPC           = 0x341,
-        CSR_MCAUSE         = 0x342,
-        CSR_MTVAL          = 0x343,
-        CSR_MIP            = 0x344,
-        CSR_MVENDORID      = 0xF11,
-        CSR_MARCHID        = 0xF12,
-        CSR_MIMPID         = 0xF13,
-        CSR_MHARTID        = 0xF14,
-        CSR_MCYCLE         = 0xB00,
-        CSR_MINSTRET       = 0xB02,
-        CSR_DCACHE         = 0x701,
-        CSR_ICACHE         = 0x700,
-        // Counters and Timers
-        CSR_CYCLE          = 0xC00,
-        CSR_TIME           = 0xC01,
-        CSR_INSTRET        = 0xC02,
-        // Performance counters
-        CSR_L1_ICACHE_MISS = PERF_L1_ICACHE_MISS + 0xC03,
-        CSR_L1_DCACHE_MISS = PERF_L1_DCACHE_MISS + 0xC03,
-        CSR_ITLB_MISS      = PERF_ITLB_MISS      + 0xC03,
-        CSR_DTLB_MISS      = PERF_DTLB_MISS      + 0xC03,
-        CSR_LOAD           = PERF_LOAD           + 0xC03,
-        CSR_STORE          = PERF_STORE          + 0xC03,
-        CSR_EXCEPTION      = PERF_EXCEPTION      + 0xC03,
-        CSR_EXCEPTION_RET  = PERF_EXCEPTION_RET  + 0xC03,
-        CSR_BRANCH_JUMP    = PERF_BRANCH_JUMP    + 0xC03,
-        CSR_CALL           = PERF_CALL           + 0xC03,
-        CSR_RET            = PERF_RET            + 0xC03,
-        CSR_MIS_PREDICT    = PERF_MIS_PREDICT    + 0xC03
-    } csr_reg_t;
-
 static int tstcnt;
 static long prev_addr;
 
@@ -338,19 +255,21 @@ void show_tdo(uint32_t *rslt)
 	      printf("%.8X%c", rslt[j], j?':':'\n');
 }
 
-static jtag_mode_t dbg_flag, inc_flag, wr_flag;
-static int verbose = 0;
+static jtag_mode_t inc_flag, wr_flag;
+static int dbg_master, verbose = 0;
 
 void my_addr(jtag_addr_t addr)
 {
-  char addrbuf[20];
-  sprintf(addrbuf, "(%lX)", dbg_flag|inc_flag|wr_flag|addr);
+  char addrbuf[20], iraddrbuf[20], irdatabuf[20];
+  sprintf(addrbuf, "(%lX)", inc_flag|wr_flag|addr);
+  sprintf(iraddrbuf, "(%.2X)", dbg_master ? 0x23 : 0x03);
+  sprintf(irdatabuf, "(%.2X)", dbg_master ? 0x22 : 0x02);
   // select address reg
-  my_svf(SIR, "6", "TDI", "(03)", NULL);
+  my_svf(SIR, "6", "TDI", iraddrbuf, NULL);
   // auto-inc on
   my_svf(SDR, "40", "TDI", addrbuf, NULL);
   // select data reg
-  my_svf(SIR, "6", "TDI", "(02)", NULL);
+  my_svf(SIR, "6", "TDI", irdatabuf, NULL);
   prev_addr = addr;
 #ifdef VERBOSE  
   printf("my_addr = %s\n", addrbuf);
@@ -486,6 +405,7 @@ const char *dbgnam(int reg)
       default: return "???";
        }
 }
+
 void jtag_poke(int addr, uint64_t data)
 {
   if (verbose)
@@ -502,42 +422,106 @@ uint64_t jtag_peek(int addr)
   return retval;
 }
 
-void verify_poke(int addr, uint64_t data)
+void verify_poke(int addr, uint64_t data, uint64_t mask)
 {
   uint64_t rslt;
   jtag_poke(addr, data);
   rslt = jtag_peek(addr);
-  if (data != rslt)
+  if (data != (rslt&~mask))
     {
       printf("JTAG verify mismatch: %.16lX != %.16lX\n", data, rslt);
     }
 }
 
-void my_jtag(void)
+uint64_t cpu_ctrl(int cpu_addr, uint64_t cpu_data)
 {
-  int i, len = 0x10000/8;
-  uint64_t *rslt1, *rsltd, ctrl;
-  dbg_flag = dbg_fetch|dbg_req;
+  cpu_mode_t ctrl;
+  uint64_t rslt;
+  // set up the data to write
+  jtag_poke(debug_addr_lo, cpu_data);
   // Try to set debug request
-  ctrl = -1;
-  verify_poke(debug_addr+DBG_CTRL, ctrl);
-  // Try to set debug regs all on
-  rslt1 = calloc(len, sizeof(uint64_t));
-  memset(rslt1, -1, len*sizeof(uint64_t));
-  write_data(debug_addr, len, rslt1);
-  // Readout to see what sticks
-  inc_flag = inc_mode;
-  wr_flag = rd_mode;
-  my_addr(debug_addr);
-  rsltd = raw_read_data(len);
-  for (i = 0; i < len; i++)
+  ctrl = cpu_stb|cpu_stall|(cpu_addr&cpu_addr_mask);
+  verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
+  ctrl = cpu_we|cpu_stb|cpu_stall|(cpu_addr&cpu_addr_mask);
+  verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
+  ctrl = cpu_stb|cpu_stall|(cpu_addr&cpu_addr_mask);
+  verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
+  rslt = jtag_peek(debug_addr_lo);
+  ctrl = cpu_stall|(cpu_addr&cpu_addr_mask);
+  verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
+  printf("cpu_ctrl(0x%.4X,%s): wrote 0x%.16lX, read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), cpu_data, rslt);
+  return rslt;
+}
+
+uint64_t cpu_read(int cpu_addr)
+{
+  cpu_mode_t ctrl;
+  uint64_t rslt;
+  // Try to set debug request
+  ctrl = cpu_stb|cpu_stall|(cpu_addr&cpu_addr_mask);
+  verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
+  rslt = jtag_peek(debug_addr_lo);
+  ctrl = cpu_stall|(cpu_addr&cpu_addr_mask);
+  verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
+  printf("cpu_read(0x%.4X,%s): read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), rslt);
+  return rslt;
+}
+
+void cpu_halt(void)
+{
+  uint64_t old_dbg = cpu_read(DBG_CTRL);
+  cpu_ctrl(DBG_CTRL, old_dbg|0x10000);
+}
+
+int cpu_is_stopped(void)
+{
+  uint64_t data = cpu_read(DBG_CTRL);
+  if (data & 0x10000)
+    return true;
+  else
+    return false;
+}
+
+uint32_t gpr_read(int gpr)
+{
+  uint32_t data = cpu_read(DBG_GPR+gpr*8);
+}
+
+void gpr_write(int gpr, uint64_t data)
+{
+  cpu_ctrl(DBG_GPR+gpr*8, data);
+}
+
+uint32_t csr_read(int csr)
+{
+  uint32_t data = cpu_read(CSR_BASE+csr*8);
+}
+
+void csr_write(int csr, uint64_t data)
+{
+  cpu_ctrl(CSR_BASE+csr*8, data);
+}
+
+void cpu_flush(void)
+{
+  uint64_t data = cpu_read(DBG_NPC);
+  cpu_ctrl(DBG_NPC, data);
+}
+
+void cpu_debug(void)
+{
+  int stopped;
+  cpu_halt();
+  stopped = cpu_is_stopped();
+  if (stopped)
     {
-      const char *reg = dbgnam(i*8);
-      if ((*reg != '?') || (rsltd[i] && ~rsltd[i]))
-        printf("addr[%.4X] %s = %.16lX\n", i*8, reg, rsltd[i]);
+      uint32_t m_thread_id;
+      printf("CPU is stopped\n");
+      m_thread_id = csr_read(0xF10);
+      printf("Found a core with id %X\n", m_thread_id);
     }
-  my_mem_test(3, debug_addr+DBG_GPR+16);
-  svf_free();
+  else
+    printf("CPU is running\n");
 }
 
 typedef struct {  
@@ -551,7 +535,7 @@ void axi_poke(axi_rec_t *burst)
     ((burst->wrap_rst&1)<<51)|((burst->reset&1)<<50)|
     ((burst->go&1)<<49)|((burst->inc&1)<<48)|((burst->rnw&1)<<47)|
     ((burst->size&0x7F)<<40)|((burst->length&0xFF)<<32)|(burst->axi_addr&0xFFFFFFFF);
-  verify_poke(burst_addr, mask);  
+  verify_poke(burst_addr, mask, 0);  
 }
 
 void axi_counters(void)
@@ -778,8 +762,8 @@ void axi_test(long addr, int rnw, int siz, int len)
 #define HID_LED 0x400F
 #define HID_DIP 0x401F
 
-// enum {scroll_start=0, base=0x40000000};
-enum {scroll_start=0, base=0x00000000};
+enum {scroll_start=0, base=0x40000000};
+//enum {scroll_start=0, base=0x00000000};
 volatile uint32_t *const sd_base = (uint32_t *)(base+0x01010000);
 volatile uint32_t *const hid_vga_ptr = (uint32_t *)(base+0x01008000);
 const size_t eth = (base+0x01020000), hid = (base+0x01000000);
@@ -790,15 +774,6 @@ void axi_vga(const char *str)
      enum {line=64*4};
      uint64_t *frambuf = calloc(line, sizeof(uint64_t));
      long vga_addr = (long)hid_vga_ptr;
-     svf_init();
-     my_svf(TRST, "OFF", NULL);
-     my_svf(ENDIR, "IDLE", NULL);
-     my_svf(ENDDR, "IDLE", NULL);
-     my_svf(STATE, "RESET", NULL);
-     my_svf(STATE, "IDLE", NULL);
-     my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
-     my_mem_test(12, shared_addr);
-     printf("Tests passed = %d\n", tstcnt);
      for (int l = 0; l < 16; l++)
        {
          if ((l < 7) || (l > 9))
@@ -833,9 +808,21 @@ void axi_dipsw(void)
 
 int main(int argc, const char **argv)
 {
-  if (argc == 2 && !strcmp(argv[1], "-v"))
+  int bridge = 0;
+  int memtest = 0;
+  if (argc >= 2 && !strcmp(argv[1], "-v"))
     {
     verbose = 1;
+    --argc; ++argv;
+    }
+  if (argc >= 2 && !strcmp(argv[1], "-t"))
+    {
+    memtest = 1;
+    --argc; ++argv;
+    }
+  if (argc >= 2 && !strncmp(argv[1], "-p", 2))
+    {
+      bridge = atoi(2+argv[1]);
     --argc; ++argv;
     }
   my_command_init(verbose);
@@ -849,8 +836,27 @@ int main(int argc, const char **argv)
    }
   else
     {
+      svf_init();
+      my_svf(TRST, "OFF", NULL);
+      my_svf(ENDIR, "IDLE", NULL);
+      my_svf(ENDDR, "IDLE", NULL);
+      my_svf(STATE, "RESET", NULL);
+      my_svf(STATE, "IDLE", NULL);
+      my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
+      dbg_master = 0;
+      if (memtest)
+        {
+        my_mem_test(12, shared_addr);
+        printf("Tests passed = %d\n", tstcnt);
+        }
       axi_vga(" ** Hello JTAG Master ** ");
       axi_dipsw();
+      cpu_debug();
+      if (bridge)
+        {
+          new_bridge(bridge);
+        }
+      svf_free();
     }
 }
 
@@ -888,3 +894,16 @@ void hid_console_putchar(unsigned char ch)
 void hid_send_string(const char *str) {
   while (*str) hid_console_putchar(*str++);
 }
+
+uint64_t htonll(uint64_t addr)
+{
+  uint64_t rslt;
+  uint32_t tmp[2];
+  uint32_t tmp2[2];
+  memcpy(tmp, &addr, sizeof(uint64_t));
+  tmp2[1] = htonl(tmp[0]);
+  tmp2[0] = htonl(tmp[1]);
+  memcpy(&rslt, tmp2, sizeof(uint64_t));
+  return rslt;
+}
+

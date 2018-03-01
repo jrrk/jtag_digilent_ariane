@@ -1,5 +1,5 @@
 *.o
-jtag_digilent
+jtag_digilent_ariane
 *~
 jtag_dummy.cache
 jtag_dummy.hw
