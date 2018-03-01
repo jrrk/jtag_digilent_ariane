@@ -17,21 +17,21 @@ BreakPoints::BreakPoints(MemIF* mem, Cache* cache) {
 bool
 BreakPoints::insert(unsigned int addr) {
   bool retval;
-  uint32_t data_bp;
+  uint64_t data_bp;
   struct bp_insn bp;
 
   bp.addr = addr;
-  retval = m_mem->access(0, addr, 4, (char*)&bp.insn_orig);
+  retval = m_mem->access(0, addr, 8, (uint64_t *)&bp.insn_orig);
   bp.is_compressed = INSN_IS_COMPRESSED(bp.insn_orig);
 
   m_bp_list.push_back(bp);
 
   if (bp.is_compressed) {
     data_bp = INSN_BP_COMPRESSED;
-    retval = retval && m_mem->access(1, addr, 2, (char*)&data_bp);
+    retval = retval && m_mem->access(1, addr, 2, (uint64_t *)&data_bp);
   } else {
     data_bp = INSN_BP;
-    retval = retval && m_mem->access(1, addr, 4, (char*)&data_bp);
+    retval = retval && m_mem->access(1, addr, 4, (uint64_t *)&data_bp);
   }
 
   return retval && m_cache->flush();
@@ -51,9 +51,9 @@ BreakPoints::remove(unsigned int addr) {
       m_bp_list.erase(it);
 
       if (is_compressed)
-        retval = m_mem->access(1, addr, 2, (char*)&data);
+        retval = m_mem->access(1, addr, 2, (uint64_t *)&data);
       else
-        retval = m_mem->access(1, addr, 4, (char*)&data);
+        retval = m_mem->access(1, addr, 4, (uint64_t *)&data);
 
       return retval && m_cache->flush();
     }
@@ -94,10 +94,10 @@ BreakPoints::enable(unsigned int addr) {
     if (it->addr == addr) {
       if (it->is_compressed) {
         data = INSN_BP_COMPRESSED;
-        retval = m_mem->access(1, addr, 2, (char*)&data);
+        retval = m_mem->access(1, addr, 2, (uint64_t *)&data);
       } else {
         data = INSN_BP;
-        retval = m_mem->access(1, addr, 4, (char*)&data);
+        retval = m_mem->access(1, addr, 4, (uint64_t *)&data);
       }
 
       return retval && m_cache->flush();
@@ -116,9 +116,9 @@ BreakPoints::disable(unsigned int addr) {
   for (std::list<struct bp_insn>::iterator it = m_bp_list.begin(); it != m_bp_list.end(); it++) {
     if (it->addr == addr) {
       if (it->is_compressed)
-        retval = m_mem->access(1, addr, 2, (char*)&it->insn_orig);
+        retval = m_mem->access(1, addr, 2, (uint64_t *)&it->insn_orig);
       else
-        retval = m_mem->access(1, addr, 4, (char*)&it->insn_orig);
+        retval = m_mem->access(1, addr, 4, (uint64_t *)&it->insn_orig);
 
       return retval && m_cache->flush();
     }

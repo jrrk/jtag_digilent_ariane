@@ -416,7 +416,7 @@ static int svf_find_string_in_array(char *str, char **strs, int num_of_element)
 static FILE *tmplog;
 #endif
 
-int svf_free(void)
+void svf_free(void)
 {
 
 	/* free buffers */
@@ -632,7 +632,7 @@ COMMAND_HANDLER(handle_svf_command)
 		    {
 		      enum svf_command command;
 		      char *argus[256];
-		      int num_of_argu = 0, i, j;
+		      int num_of_argu = 0;
 		      uint64_t *rslt;
 		    /* Parse Command */
 		      if (ERROR_OK != svf_parse_cmd_string(svf_command_buffer, strlen(svf_command_buffer), argus, &num_of_argu)) {
@@ -1639,7 +1639,7 @@ uint64_t *my_svf(enum svf_command command, ...)
   static char *argus[256];
   int num_of_argu = 1;
   va_list ap;
-  char c, *s;
+  char *s;
   uint64_t *rslt = NULL;
   int ignore = svf_ignore_error;
   svf_ignore_error = 1;

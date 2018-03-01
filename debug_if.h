@@ -2,17 +2,18 @@
 #define DEBUG_IF_H
 
 #include "mem.h"
+#include "main.h"
 
 #include <unistd.h>
 #include <stdint.h>
 #include <stdbool.h>
 
-#define DBG_CTRL_REG  0x0
-#define DBG_HIT_REG   0x4
-#define DBG_IE_REG    0x8
-#define DBG_CAUSE_REG 0xC
-#define DBG_NPC_REG   0x2000
-#define DBG_PPC_REG   0x2004
+#define DBG_CTRL_REG  DBG_CTRL
+#define DBG_HIT_REG   DBG_HIT
+#define DBG_IE_REG    DBG_IE
+#define DBG_CAUSE_REG DBG_CAUSE
+#define DBG_NPC_REG   DBG_NPC
+#define DBG_PPC_REG   DBG_PPC
 
 #define DBG_CAUSE_BP  0x3
 

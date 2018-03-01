@@ -332,4 +332,9 @@ int adapter_config_trace(bool enabled, enum tpio_pin_protocol pin_protocol,
 			 uint32_t port_size, unsigned int *trace_freq);
 int adapter_poll_trace(uint8_t *buf, size_t *size);
 
+int remote_bitbang_handle_remote_bitbang_host_command(struct command_invocation *cmd);
+int remote_bitbang_handle_remote_bitbang_port_command(struct command_invocation *cmd);
+int jtag_vpi_set_address(struct command_invocation *cmd);
+int jtag_vpi_set_port(struct command_invocation *cmd);
+
 #endif /* OPENOCD_JTAG_INTERFACE_H */

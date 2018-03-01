@@ -23,8 +23,6 @@
 extern struct jtag_interface ftdi_interface;
 
 struct target *all_targets;
-static struct target_event_callback *target_event_callbacks;
-static struct target_timer_callback *target_timer_callbacks;
 LIST_HEAD(target_reset_callback_list);
 LIST_HEAD(target_trace_callback_list);
 static const int polling_interval = 100;
@@ -33,7 +31,7 @@ struct command_invocation my_command, *cmd = &my_command;
 struct command current;
 struct command current;
 struct jtag_tap tap1;
-int expect[] = {0x13631093};
+unsigned int expect[] = {0x13631093};
 
 struct jtag_interface jlink_interface = {
         .name = "jlink",
@@ -482,9 +480,9 @@ int cpu_is_stopped(void)
     return false;
 }
 
-uint32_t gpr_read(int gpr)
+uint64_t gpr_read(int gpr)
 {
-  uint32_t data = cpu_read(DBG_GPR+gpr*8);
+  return cpu_read(DBG_GPR+gpr*8);
 }
 
 void gpr_write(int gpr, uint64_t data)
@@ -492,9 +490,9 @@ void gpr_write(int gpr, uint64_t data)
   cpu_ctrl(DBG_GPR+gpr*8, data);
 }
 
-uint32_t csr_read(int csr)
+uint64_t csr_read(int csr)
 {
-  uint32_t data = cpu_read(CSR_BASE+csr*8);
+  return cpu_read(CSR_BASE+csr*8);
 }
 
 void csr_write(int csr, uint64_t data)
@@ -648,7 +646,6 @@ void axi_capture_status(void)
   dbg = (axi_t *)calloc(len, sizeof(axi_t));
   for (j = 0; j < len; j++)
     {
-      uint64_t start_out;
       dbg[j].ar_addr   = ext(32);
       dbg[j].aw_addr   = ext(32);
       dbg[j].r_data    = ext(32);
@@ -866,7 +863,6 @@ extern void hid_send_string(const char *str);
 
 void hid_console_putchar(unsigned char ch)
 {
-  int lmt;
   switch(ch)
     {
     case 8: case 127: if (addr_int & 127) hid_vga_ptr[--addr_int] = ' '; break;

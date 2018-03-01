@@ -908,7 +908,7 @@ Rsp::resumeCores() {
     this->get_dbgif(0)->write(DBG_CTRL_REG, value & ~(1<<16));
   } else {
     uint64_t info = 0xFFFFFFFF;
-    m_mem->access(1, 0x10200028, 4, (char*)&info);
+    m_mem->access(1, 0x10200028, 4, (uint64_t *)&info);
   }
 }
 
@@ -963,7 +963,7 @@ Rsp::mem_read(char* data, size_t len) {
     return false;
   }
 
-  m_mem->access(0, addr, length, buffer);
+  m_mem->access(0, addr, length, (uint64_t *)buffer);
 
   for(i = 0; i < length; i++) {
     rdata = buffer[i];
@@ -1026,7 +1026,7 @@ Rsp::mem_write_ascii(char* data, size_t len) {
     buffer[j] = wdata;
   }
 
-  m_mem->access(1, addr, buffer_len, buffer);
+  m_mem->access(1, addr, buffer_len, (uint64_t *)buffer);
 
   free(buffer);
 
@@ -1040,8 +1040,7 @@ Rsp::mem_write(char* data, size_t len) {
   uint64_t wdata;
   int i, j;
 
-  char* buffer;
-  int buffer_len;
+  uint64_t *buffer = (uint64_t *)(((size_t)data+sizeof(uint64_t)-1)&(-sizeof(uint64_t)));
 
   if (sscanf(data, "%lx,%lx:", &addr, &length) != 2) {
     fprintf(stderr, "Could not parse packet\n");
@@ -1058,10 +1057,10 @@ Rsp::mem_write(char* data, size_t len) {
     return false;
 
   // align to hex data
-  data = &data[i+1];
   len = len - i - 1;
 
-  m_mem->access(1, addr, len, data);
+  memcpy(buffer, &data[i+1], len);
+  m_mem->access(1, addr, len, buffer);
 
   return this->send_str("OK");
 }

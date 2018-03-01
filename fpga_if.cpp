@@ -1,4 +1,5 @@
-#include "mem_zynq_spi.h"
+#include "fpga_if.h"
+#include "main.h"
 
 #include <byteswap.h>
 #include <stdio.h>
@@ -25,29 +26,37 @@ FpgaIF::~FpgaIF() {
 }
 
 bool
-FpgaIF::mem_write(uint32_t addr, uint8_t be, uint32_t wdata) {
-
-  return true;
+FpgaIF::mem_write(uint64_t addr, uint8_t be, uint64_t wdata) {
+  return this->access(true, addr, sizeof(uint32_t), &wdata);
 }
 
 bool
-FpgaIF::mem_read(uint32_t addr, uint32_t *rdata) {
-
-  return true;
+FpgaIF::mem_read(uint64_t addr, uint64_t *rdata) {
+  return this->access(false, addr, sizeof(uint32_t), rdata);
 }
 
 bool
-FpgaIF::access(bool write, unsigned int addr, int size, char* buffer) {
+FpgaIF::access(bool write, uint64_t addr, int size, uint64_t *buffer) {
   bool retval = true;
-  uint32_t rdata;
+  uint64_t *rdata;
   uint8_t be;
 
-  if (write) {
-    // write
-
-  } else {
-    // read
-  }
+  if (size > 0)
+      {
+        if (write)
+          {
+            // write
+            write_data(shared_addr, (size+sizeof(uint64_t)-1)/sizeof(uint64_t), buffer);
+            axi_test(addr, 0, 8, 128);
+          }
+        else
+          {
+            // read
+            axi_test(addr, 1, 8, 128);
+            rdata = read_data(shared_addr, (size+sizeof(uint64_t)-1)/sizeof(uint64_t));
+            memcpy(buffer, rdata, size);
+          }
+      }
 
   return retval;
 }

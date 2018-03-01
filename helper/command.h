@@ -408,7 +408,7 @@ void jtag_constructor(void);
 void swd_constructor(void);
 uint64_t *my_svf(enum svf_command command, ...);
 int svf_init(void);
-int svf_free(void);
+void svf_free(void);
 int rslt_len(void);
 
 #define ERROR_COMMAND_CLOSE_CONNECTION		(-600)

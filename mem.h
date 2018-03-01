@@ -7,7 +7,7 @@
 
 class MemIF {
   public:
-    virtual bool access(bool write, unsigned int addr, int size, char* buffer) = 0;
+    virtual bool access(bool write, uint64_t addr, int size, uint64_t *buffer) = 0;
 };
 
 #endif

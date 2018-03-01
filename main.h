@@ -1,3 +1,6 @@
+#ifndef _MAIN_H
+#define _MAIN_H
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -123,13 +126,18 @@ typedef enum {
         CSR_MIS_PREDICT    = PERF_MIS_PREDICT    + 0xC03
     } csr_reg_t;
 
-uint64_t cpu_ctrl(int cpu_addr, uint64_t cpu_data);
-uint64_t cpu_read(int cpu_addr);
-void cpu_debug(void);
-void cpu_flush(void);
-void cpu_halt(void);
-uint64_t htonll(uint64_t addr);
-
+  void write_data(jtag_addr_t addr, int len, uint64_t *cnvptr);
+  uint64_t *read_data(jtag_addr_t addr, int len);
+  void axi_test(long addr, int rnw, int siz, int len);
+  uint64_t cpu_ctrl(int cpu_addr, uint64_t cpu_data);
+  uint64_t cpu_read(int cpu_addr);
+  void cpu_debug(void);
+  void cpu_flush(void);
+  void cpu_halt(void);
+  uint64_t htonll(uint64_t addr);
+  void new_bridge(int portNumber);
+  
 #ifdef __cplusplus
 };
+#endif
 #endif

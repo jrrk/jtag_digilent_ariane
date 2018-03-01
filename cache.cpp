@@ -18,7 +18,7 @@ bool
 PulpCache::flush() {
   uint32_t data = 0xFFFFFFFF;
   flushCores();
-  return m_mem->access(1, m_addr + 0x04, 4, (char*)&data);
+  return m_mem->access(1, m_addr + 0x04, 4, (uint64_t *)&data);
 }
 
 GAPCache::GAPCache(MemIF* mem, std::list<DbgIF*>* p_dbgIfList, unsigned int addr, unsigned int fc_addr) :
@@ -31,5 +31,5 @@ bool
 GAPCache::flush() {
   uint32_t data = 0xFFFFFFFF;
   bool retval = PulpCache::flush();
-  return retval && m_mem->access(1, m_fc_addr + 0x0C, 4, (char*)&data);
+  return retval && m_mem->access(1, m_fc_addr + 0x0C, 4, (uint64_t *)&data);
 }

@@ -1,8 +1,7 @@
 #ifndef BRIDGE_H
 #define BRIDGE_H
 
-#include "mem_zynq_spi.h"
-#include "mem_zynq_apb_spi.h"
+#include "fpga_if.h"
 #include "sim.h"
 
 #include "debug_if.h"

@@ -1,4 +1,5 @@
 #include "bridge.h"
+#include "main.h"
 #include <stdarg.h>
 
 Platforms platform_detect(MemIF* mem) {
@@ -6,36 +7,6 @@ Platforms platform_detect(MemIF* mem) {
 
   printf ("Assumed Ariane\n");
   return Ariane;
-}
-
-bool platform_pulp(MemIF* mem, std::list<DbgIF*>* p_list, LogIF *log) {
-  uint32_t info;
-  unsigned int ncores;
-
-  mem->access(0, 0x1A103010, 4, (char*)&info);
-
-  ncores = info >> 16;
-
-  for(int i = 0; i < ncores; i++) {
-    p_list->push_back(new DbgIF(mem, 0x10300000 + i * 0x8000, log));
-  }
-
-  // set all-stop mode, so that all cores go to debug when one enters debug mode
-  info = 0xFFFFFFFF;
-  return mem->access(1, 0x10200038, 4, (char*)&info);
-}
-
-bool platform_gap(MemIF* mem, std::list<DbgIF*>* p_list, LogIF *log) {
-  platform_pulp(mem, p_list, log);
-  p_list->push_back(new DbgIF(mem, 0x1B220000, log));
-
-  return true;
-}
-
-bool platform_pulpino(MemIF* mem, std::list<DbgIF*>* p_list, LogIF *log) {
-  p_list->push_back(new DbgIF(mem, 0x1A110000, log));
-
-  return true;
 }
 
 bool platform_ariane(MemIF* mem, std::list<DbgIF*>* p_list, LogIF *log) {
@@ -80,21 +51,6 @@ void Bridge::initBridge(Platforms platform, int portNumber, MemIF *memIF, LogIF 
   }
 
   switch(platform) {
-    case GAP:
-      platform_gap(mem, &dbgifs, this->log);
-      cache = new GAPCache(mem, &dbgifs, 0x10201400, 0x1B200000);
-      break;
-
-    case PULP:
-      platform_pulp(mem, &dbgifs, this->log);
-      cache = new PulpCache(mem, &dbgifs, 0x10201400);
-      break;
-
-    case PULPino:
-      platform_pulpino(mem, &dbgifs, this->log);
-      cache = new Cache(mem, &dbgifs);
-      break;
-
     case Ariane:
       platform_ariane(mem, &dbgifs, this->log);
       cache = new Cache(mem, &dbgifs);
@@ -151,7 +107,7 @@ void Bridge::debug(const char *str, ...)
   va_end(va);
 }
 
-extern "C" void new_bridge(int portNumber)
+void new_bridge(int portNumber)
 {
   Bridge *bridge = new Bridge(unknown, portNumber);
   bridge->mainLoop();
