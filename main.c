@@ -255,6 +255,7 @@ void show_tdo(uint32_t *rslt)
 
 static jtag_mode_t inc_flag, wr_flag;
 static int dbg_master, verbose = 0;
+static uint64_t stallmask = 0; // was cpu_stall;
 
 void my_addr(jtag_addr_t addr)
 {
@@ -338,7 +339,6 @@ uint64_t rand64(void)
 void my_mem_test(int shft, long addr)
 {
   int i, j;
-  srand48(time(0));
   for (i = 1; i < shft; i++)
     {
       uint64_t *rslt1, *rslt2;
@@ -389,6 +389,37 @@ const char *dbgnam(int reg)
       case DBG_NPC     : return "DBG_NPC     ";
       case DBG_PPC     : return "DBG_PPC     ";
       case DBG_GPR     : return "DBG_GPR     ";
+      case DBG_RA      : return "DBG_RA      ";
+      case DBG_SP      : return "DBG_SP      ";
+      case DBG_GP      : return "DBG_GP      ";
+      case DBG_TP      : return "DBG_TP      ";
+      case DBG_T0      : return "DBG_T0      ";
+      case DBG_T1      : return "DBG_T1      ";
+      case DBG_T2      : return "DBG_T2      ";
+      case DBG_S0      : return "DBG_S0      ";
+      case DBG_S1      : return "DBG_S1      ";
+      case DBG_A0      : return "DBG_A0      ";
+      case DBG_A1      : return "DBG_A1      ";
+      case DBG_A2      : return "DBG_A2      ";
+      case DBG_A3      : return "DBG_A3      ";
+      case DBG_A4      : return "DBG_A4      ";
+      case DBG_A5      : return "DBG_A5      ";
+      case DBG_A6      : return "DBG_A6      ";
+      case DBG_A7      : return "DBG_A7      ";
+      case DBG_S2      : return "DBG_S2      ";
+      case DBG_S3      : return "DBG_S3      ";
+      case DBG_S4      : return "DBG_S4      ";
+      case DBG_S5      : return "DBG_S5      ";
+      case DBG_S6      : return "DBG_S6      ";
+      case DBG_S7      : return "DBG_S7      ";
+      case DBG_S8      : return "DBG_S8      ";
+      case DBG_S9      : return "DBG_S9      ";
+      case DBG_S10     : return "DBG_S10     ";
+      case DBG_S11     : return "DBG_S11     ";
+      case DBG_T3      : return "DBG_T3      ";
+      case DBG_T4      : return "DBG_T4      ";
+      case DBG_T5      : return "DBG_T5      ";
+      case DBG_T6      : return "DBG_T6      ";
 
         // CSRs 4000-0xBFFF
 
@@ -442,10 +473,10 @@ uint64_t cpu_ctrl(int cpu_addr, uint64_t cpu_data)
   verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
   ctrl = cpu_we|cpu_stb|cpu_stall|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
-  ctrl = cpu_stb|cpu_stall|(cpu_addr&cpu_addr_mask);
+  ctrl = cpu_stb|stallmask|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
   rslt = jtag_peek(debug_addr_lo);
-  ctrl = cpu_stall|(cpu_addr&cpu_addr_mask);
+  ctrl = stallmask|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
   printf("cpu_ctrl(0x%.4X,%s): wrote 0x%.16lX, read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), cpu_data, rslt);
   return rslt;
@@ -456,10 +487,10 @@ uint64_t cpu_read(int cpu_addr)
   cpu_mode_t ctrl;
   uint64_t rslt;
   // Try to set debug request
-  ctrl = cpu_stb|cpu_stall|(cpu_addr&cpu_addr_mask);
+  ctrl = cpu_stb|stallmask|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
   rslt = jtag_peek(debug_addr_lo);
-  ctrl = cpu_stall|(cpu_addr&cpu_addr_mask);
+  ctrl = stallmask|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
   printf("cpu_read(0x%.4X,%s): read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), rslt);
   return rslt;
@@ -551,14 +582,14 @@ void axi_status(void)
   axi_counters();
   switch( (status>>32)&7)
     {
-    case 000: printf("State: reset\n"); break;
-    case 001: printf("State: idle\n"); break;
-    case 002: printf("State: prepare\n"); break;
-    case 003: printf("State: read_transaction\n"); break;
-    case 004: printf("State: write_transaction\n"); break;
-    case 005: printf("State: error_detected\n"); break;
-    case 006: printf("State: complete\n"); break;
-    default:  printf("State: unknown\n"); break;
+    case axi_state_reset: printf("State: reset\n"); break;
+    case axi_state_idle: printf("State: idle\n"); break;
+    case axi_state_prepare: printf("State: prepare\n"); break;
+    case axi_state_read_transaction: printf("State: read_transaction\n"); break;
+    case axi_state_write_transaction: printf("State: write_transaction\n"); break;
+    case axi_state_error_detected: printf("State: error_detected\n"); break;
+    case axi_state_complete: printf("State: complete\n"); break;
+    case axi_state_unknown:  printf("State: unknown\n"); break;
     }
   printf("Done: %lX\n", (status>>35)&1);
   printf("Busy: %lX\n", (status>>36)&1);
@@ -617,6 +648,7 @@ void axi_readout(long addr, int len)
 axi_t *dbg;
 uint64_t *cap_raw;
 int cap_offset;
+enum {sleep_dly=100};
 
 static uint64_t ext(int wid)
 {
@@ -714,9 +746,32 @@ void axi_capture_status(void)
   close_vcd();
 }
 
+int axi_check_status(void)
+{
+  return (jtag_peek(status_addr)>>32)&7;
+}
+
+void axi_check_complete(axi_state_t target_state)
+{
+  int waiting, waitcnt = 0;
+  axi_state_t current_state;
+  do {
+    current_state = axi_check_status();
+    waiting = current_state != target_state;
+    if (waiting)
+      usleep(sleep_dly);
+  }
+  while (waiting && ++waitcnt < 100);
+  if (waiting)
+    {
+      printf("AXI timeout, resetting\n");
+      
+      usleep(sleep_dly);
+    }
+}
+
 void axi_test(long addr, int rnw, int siz, int len)
 {
-  enum {sleep=100};
   axi_rec_t burst;
   if (verbose) printf("Reset...\n");
   burst.cap_rst = 1;
@@ -729,22 +784,22 @@ void axi_test(long addr, int rnw, int siz, int len)
   burst.length = len;
   burst.axi_addr = addr;
   axi_poke(&burst);
-  usleep(sleep);
+  usleep(sleep_dly);
   if (verbose) printf("Make idle...\n");
   burst.reset = 1;
   axi_poke(&burst);
-  usleep(sleep);
+  usleep(sleep_dly);
   if (verbose) printf("Enable capture and wrap counters...\n");
   burst.cap_rst = 0;
   burst.wrap_rst = 0;
   burst.reset = 1;
   axi_poke(&burst);
-  usleep(sleep);
+  usleep(sleep_dly);
   if (verbose) axi_counters();
   if (verbose) printf("Go...\n");
   burst.go = 1;
   axi_poke(&burst);
-  usleep(sleep);
+  axi_check_complete(axi_state_complete);
   if (verbose)
     {
       axi_status();
@@ -753,6 +808,7 @@ void axi_test(long addr, int rnw, int siz, int len)
     }
   burst.go = 0;
   axi_poke(&burst);
+  axi_check_complete(axi_state_idle);
 }
 
 #define HID_VGA 0x2000
@@ -765,12 +821,12 @@ volatile uint32_t *const sd_base = (uint32_t *)(base+0x01010000);
 volatile uint32_t *const hid_vga_ptr = (uint32_t *)(base+0x01008000);
 const size_t eth = (base+0x01020000), hid = (base+0x01000000);
 static int addr_int = scroll_start;
+static long vga_addr = (long)(base+0x01008000);
 
 void axi_vga(const char *str)
 {
      enum {line=64*4};
      uint64_t *frambuf = calloc(line, sizeof(uint64_t));
-     long vga_addr = (long)hid_vga_ptr;
      for (int l = 0; l < 16; l++)
        {
          if ((l < 7) || (l > 9))
@@ -843,11 +899,24 @@ int main(int argc, const char **argv)
       dbg_master = 0;
       if (memtest)
         {
-        my_mem_test(12, shared_addr);
-        printf("Tests passed = %d\n", tstcnt);
+          enum {burst=128};
+          uint64_t *rand = calloc(burst, sizeof(uint64_t));
+          srand48(time(0));
+          tstcnt = 0;
+          my_mem_test(12, shared_addr);
+          printf("Tests passed = %d\n", tstcnt);
+          for (int l = 0; l < 16; l++)
+            {
+              for (int j = 0; j < burst; j++) rand[j] = rand64();
+              write_data(shared_addr, burst, rand);
+              axi_test(vga_addr+(l<<10), 0, 8, burst);
+            }
         }
-      axi_vga(" ** Hello JTAG Master ** ");
-      axi_dipsw();
+      else
+        {
+          axi_vga(" ** Hello JTAG Master ** ");
+          axi_dipsw();
+        }
       cpu_debug();
       if (bridge)
         {
@@ -899,6 +968,18 @@ uint64_t htonll(uint64_t addr)
   memcpy(tmp, &addr, sizeof(uint64_t));
   tmp2[1] = htonl(tmp[0]);
   tmp2[0] = htonl(tmp[1]);
+  memcpy(&rslt, tmp2, sizeof(uint64_t));
+  return rslt;
+}
+
+uint64_t ntohll(uint64_t addr)
+{
+  uint64_t rslt;
+  uint32_t tmp[2];
+  uint32_t tmp2[2];
+  memcpy(tmp, &addr, sizeof(uint64_t));
+  tmp2[1] = ntohl(tmp[0]);
+  tmp2[0] = ntohl(tmp[1]);
   memcpy(&rslt, tmp2, sizeof(uint64_t));
   return rslt;
 }

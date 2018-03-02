@@ -17,6 +17,16 @@ typedef enum {cap_addr = 0x300000,
       proto_addr_lo = 0x400000, proto_addr_hi = 0x500000, status_addr = 0x600000, burst_addr = 0x700000,
       shared_addr = 0x800000, cap_buf = 0x900000, debug_addr_lo = 0xFFF00000, debug_addr_hi = 0xFFF80000} jtag_addr_t;
 
+  typedef enum {
+    axi_state_reset = 000,
+    axi_state_idle = 001,
+    axi_state_prepare = 002,
+    axi_state_read_transaction = 003,
+    axi_state_write_transaction = 004,
+    axi_state_error_detected = 005,
+    axi_state_complete = 006,
+    axi_state_unknown = 007} axi_state_t;
+
 typedef enum {
         DBG_CTRL     = 0x0,
         DBG_HIT      = 0x8,
@@ -43,6 +53,37 @@ typedef enum {
         DBG_NPC      = 0x2000,
         DBG_PPC      = 0x2008,
         DBG_GPR      = 0x400,
+        DBG_RA       = 0x408,
+        DBG_SP       = 0x410,
+        DBG_GP       = 0x418,
+        DBG_TP       = 0x420,
+        DBG_T0       = 0x428,
+        DBG_T1       = 0x430,
+        DBG_T2       = 0x438,
+        DBG_S0       = 0x440,
+        DBG_S1       = 0x448,
+        DBG_A0       = 0x450,
+        DBG_A1       = 0x458,
+        DBG_A2       = 0x460,
+        DBG_A3       = 0x468,
+        DBG_A4       = 0x470,
+        DBG_A5       = 0x478,
+        DBG_A6       = 0x480,
+        DBG_A7       = 0x488,
+        DBG_S2       = 0x490,
+        DBG_S3       = 0x498,
+        DBG_S4       = 0x4A0,
+        DBG_S5       = 0x4A8,
+        DBG_S6       = 0x4B0,
+        DBG_S7       = 0x4B8,
+        DBG_S8       = 0x4C0,
+        DBG_S9       = 0x4C8,
+        DBG_S10      = 0x4D0,
+        DBG_S11      = 0x4D8,
+        DBG_T3       = 0x4E0,
+        DBG_T4       = 0x4E8,
+        DBG_T5       = 0x4F0,
+        DBG_T6       = 0x4F8,
 
         // CSRs 0x4000-0xBFFF
         CSR_BASE     = 0x4000,
@@ -135,6 +176,7 @@ typedef enum {
   void cpu_flush(void);
   void cpu_halt(void);
   uint64_t htonll(uint64_t addr);
+  uint64_t ntohll(uint64_t addr);
   void new_bridge(int portNumber);
   
 #ifdef __cplusplus

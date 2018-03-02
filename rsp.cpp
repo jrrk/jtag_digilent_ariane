@@ -113,7 +113,8 @@ Rsp::loop() {
   struct timeval tv;
 
   while (this->get_packet(pkt, &len)) {
-    log->debug("Received $%.*s\n", len, pkt);
+    if (*pkt != 'X')
+      log->debug("Received $%.*s\n", len, pkt);
     if (!this->decode(pkt, len))
       return false;
   }
@@ -209,10 +210,10 @@ Rsp::cont(char* data, size_t len) {
   if (npc_found) {
     dbgif = this->get_dbgif(m_thread_sel);
     // only when we have received an address
-    dbgif->read(DBG_NPC_REG, &npc);
+    dbgif->read(DBG_PPC_REG, &npc);
 
     if (npc != addr)
-      dbgif->write(DBG_NPC_REG, addr);
+      dbgif->write(DBG_PPC_REG, addr);
   }
 
   m_thread_sel = 0;
@@ -240,10 +241,10 @@ Rsp::step(char* data, size_t len) {
   if (sscanf(data, "%lx", &addr) == 1) {
     dbgif = this->get_dbgif(m_thread_sel);
     // only when we have received an address
-    dbgif->read(DBG_NPC_REG, &npc);
+    dbgif->read(DBG_PPC_REG, &npc);
 
     if (npc != addr)
-      dbgif->write(DBG_NPC_REG, addr);
+      dbgif->write(DBG_PPC_REG, addr);
   }
 
   m_thread_sel = 0;
@@ -428,7 +429,6 @@ bool
 Rsp::regs_send() {
   uint64_t gpr[32];
   uint64_t npc;
-  uint64_t ppc;
   char regs_str[1024];
   int i;
 
@@ -481,13 +481,15 @@ Rsp::reg_write(char* data, size_t len) {
     return false;
   }
 
-  wdata = ntohl(wdata);
+  wdata = ntohll(wdata);
 
   dbgif = this->get_dbgif(m_thread_sel);
   if (addr < 32)
     dbgif->gpr_write(addr, wdata);
   else if (addr == 32)
-    dbgif->write(DBG_NPC_REG, wdata);
+    {
+    dbgif->write(DBG_PPC_REG, wdata);
+    }
   else
     return this->send_str("E01");
 
@@ -739,6 +741,7 @@ Rsp::pc_read(uint64_t* pc) {
   dbgif->read(DBG_HIT_REG, &hit);
   dbgif->read(DBG_CAUSE_REG, &cause);
 
+#if 0
   if (hit & 0x1)
     *pc = npc;
   else if(cause & (1 << 31)) // interrupt
@@ -750,7 +753,8 @@ Rsp::pc_read(uint64_t* pc) {
   else if(cause == 5)
     *pc = ppc;
   else
-    *pc = npc;
+#endif
+    *pc = ppc;
 
   return true;
 }
@@ -835,7 +839,7 @@ Rsp::resumeCore(DbgIF* dbgif, bool step) {
 
   if (m_bp->at_addr(ppc)) {
     m_bp->disable(ppc);
-    dbgif->write(DBG_NPC_REG, ppc); // re-execute this instruction
+    dbgif->write(DBG_PPC_REG, ppc); // re-execute this instruction
     dbgif->write(DBG_CTRL_REG, 0x1); // single-step
     m_bp->enable(ppc);
     hasStepped = true;
@@ -878,7 +882,7 @@ Rsp::resumeCoresPrepare(DbgIF *dbgif, bool step) {
     log->debug("Core is stopped on a breakpoint, stepping to go over (addr: 0x%lx)\n", ppc);
 
     m_bp->disable(ppc);
-    dbgif->write(DBG_NPC_REG, ppc); // re-execute this instruction
+    dbgif->write(DBG_PPC_REG, ppc); // re-execute this instruction
     dbgif->write(DBG_CTRL_REG, 0x1); // single-step
     while (1) {
       uint64_t value;
@@ -1114,7 +1118,7 @@ Rsp::bp_remove(char* data, size_t len) {
   dbgif->read(DBG_PPC_REG, &ppc);
 
   if (addr == ppc) {
-    dbgif->write(DBG_NPC_REG, ppc); // re-execute this instruction
+    dbgif->write(DBG_PPC_REG, ppc); // re-execute this instruction
   }
 
   return this->send_str("OK");
