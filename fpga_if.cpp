@@ -44,6 +44,7 @@ FpgaIF::access(bool write, uint64_t addr, int size, uint64_t *buffer) {
   if (size > 0)
       {
         int i, beats = (size+sizeof(uint64_t)-1)/sizeof(uint64_t);
+        uint64_t *zeros = (uint64_t *)calloc(beats, sizeof(uint64_t));
         if (write)
           {
             // write
@@ -51,25 +52,27 @@ FpgaIF::access(bool write, uint64_t addr, int size, uint64_t *buffer) {
             for (i = 0; i < beats; i++)
               printf("memwrite[%.016lX] = %.016lX\n", i*8+addr, buffer[i]);
 #endif
-            write_data(shared_addr, beats, buffer); // why +1 ??
-            axi_test(addr-4, 0, 8, beats+1);
+            write_data(shared_addr, beats, buffer);
+            axi_test(addr, 0, 8, beats, 0);
             // verify
-            axi_test(addr, 1, 8, beats);
+            write_data(shared_addr, beats, zeros);
+            axi_test(addr, 1, 8, beats, 0);
             rdata = read_data(shared_addr, beats);
             for (i = 0; i < beats; i++)
               if (rdata[i] != buffer[i])
-                printf("memverify[%.016lX] = %.016lX (was %.016lX)\n", i*8+addr, rdata[i], buffer[i]);
-            memcpy(buffer, rdata, size);
+                printf("%d/%d: memverify[%.016lX] = %.016lX (was %.016lX)\n", i+1, beats+1, i*8+addr, rdata[i], buffer[i]);
           }
         else
           {
             // read
-            axi_test(addr, 1, 8, beats);
+            write_data(shared_addr, beats, zeros);
+            axi_test(addr, 1, 8, beats, 0);
             rdata = read_data(shared_addr, beats);
             for (i = 0; i < beats; i++)
               printf("memread[%.016lX] = %.016lX\n", i*8+addr, rdata[i]);
             memcpy(buffer, rdata, size);
           }
+        free(zeros);
       }
 
   return retval;

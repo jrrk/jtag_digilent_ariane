@@ -770,11 +770,11 @@ int axi_check_complete(axi_state_t target_state)
   return 1;
 }
 
-void axi_test(long addr, int rnw, int siz, int len)
+void axi_test(long addr, int rnw, int siz, int len, int bufadr)
 {
   axi_rec_t burst;
-  burst.reset = axi_check_complete(axi_state_idle);
   if (verbose) printf("Reset...\n");
+  burst.reset =  0; // axi_check_complete(axi_state_idle);
   burst.cap_rst = 1;
   burst.wrap_rst = 1;
   burst.go = 0;
@@ -782,7 +782,7 @@ void axi_test(long addr, int rnw, int siz, int len)
   burst.rnw = rnw;
   burst.size = siz;
   burst.length = len;
-  burst.axi_addr = -8;
+  burst.axi_addr = bufadr;
   axi_poke(&burst);
   usleep(sleep_dly);
   if (verbose) printf("Make idle...\n");
@@ -809,7 +809,6 @@ void axi_test(long addr, int rnw, int siz, int len)
       axi_capture_status();
   burst.go = 0;
   axi_poke(&burst);
-  axi_check_complete(axi_state_idle);
 }
 
 #define HID_VGA 0x2000
@@ -848,16 +847,16 @@ void axi_vga(const char *str)
              }
            }
          write_data(shared_addr, line, frambuf);
-         axi_test(vga_addr+(l<<10), 0, 8, 128);
+         axi_test(vga_addr+(l<<10), 0, 8, 128, -8);
        }
    }
 
 void axi_dipsw(void)
 {
-  axi_test(hid + HID_DIP*4, 1, 4, 1);
+  axi_test(hid + HID_DIP*4, 1, 4, 1, -8);
   uint64_t dip = *read_data(shared_addr, 1);
   printf("DIP SW: %.4lX\n", dip);
-  axi_test(hid + HID_LED*4, 0, 4, 1);
+  axi_test(hid + HID_LED*4, 0, 4, 1, -8);
 }
 
 int main(int argc, const char **argv)
@@ -917,15 +916,39 @@ int main(int argc, const char **argv)
       dbg_master = 0;
       if (memtest)
         {
-          uint64_t *rand = calloc(burst, sizeof(uint64_t));
+          uint64_t *chk1, *chk2, *rand = calloc(burst, sizeof(uint64_t));
           tstcnt = 0;
           my_mem_test(12, shared_addr);
           printf("Tests passed = %d\n", tstcnt);
-          for (int l = 0; l < 16; l++)
+          for (int l = 0; l < 4; l++)
             {
-              for (int j = 0; j < burst; j++) rand[j] = memtest[j+burst*l];
-              write_data(shared_addr, burst, rand);
-              axi_test(vga_addr+(l<<10), 0, 8, burst);
+              int matches = 0;
+              char msg1[burst+1];
+              char msg2[burst+1];
+              char msg3[burst+1];
+              for (int j = 0; j < burst; j++) rand[j] = rand64()<<8;
+              usleep(sleep_dly);
+              write_data(shared_addr+burst*8, burst, rand);
+              axi_test(vga_addr+(l<<10), 0, 8, burst, burst*8);
+              axi_test(vga_addr+(l<<10), 1, 8, burst, burst*16);
+              chk1 = read_data(shared_addr+burst*16, burst);
+              chk2 = read_data(shared_addr, 1 << 11);
+#if 0
+              for (int j = 0; j < burst; j++) msg1[j] = chk1[j]&0x7f;
+              for (int j = 0; j < burst; j++) msg2[j] = chk2[j+burst*2]&0x7f;
+              msg1[burst] = 0; msg2[burst] = 0; msg3[burst] = 0;
+              for (int j = 0; j < (1 << 11) - burst; j++)
+                {
+                  for (int k = 0; k < burst; k++) msg3[k] = chk2[j+k]&0x7f;
+                  if ((msg3[0] == msg1[0]) && (msg3[1] == msg1[1]))
+                    {
+                      ++matches;
+                      for (l = 0; l < 3; l++)
+                        printf("Memory match(off=%d+%d): %.2X,%.2X,%.2X\n", j, l, msg1[l], msg2[l], msg3[l]);
+                    }
+                }
+              printf("Matches = %d\n", matches);
+#endif              
             }
         }
       else
