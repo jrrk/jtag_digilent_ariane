@@ -751,7 +751,7 @@ int axi_check_status(void)
   return (jtag_peek(status_addr)>>32)&7;
 }
 
-void axi_check_complete(axi_state_t target_state)
+int axi_check_complete(axi_state_t target_state)
 {
   int waiting, waitcnt = 0;
   axi_state_t current_state;
@@ -765,24 +765,24 @@ void axi_check_complete(axi_state_t target_state)
   if (waiting)
     {
       printf("AXI timeout, resetting\n");
-      
-      usleep(sleep_dly);
+      return 0;
     }
+  return 1;
 }
 
 void axi_test(long addr, int rnw, int siz, int len)
 {
   axi_rec_t burst;
+  burst.reset = axi_check_complete(axi_state_idle);
   if (verbose) printf("Reset...\n");
   burst.cap_rst = 1;
   burst.wrap_rst = 1;
-  burst.reset = 0;
   burst.go = 0;
   burst.inc = 0;
   burst.rnw = rnw;
   burst.size = siz;
   burst.length = len;
-  burst.axi_addr = addr;
+  burst.axi_addr = -8;
   axi_poke(&burst);
   usleep(sleep_dly);
   if (verbose) printf("Make idle...\n");
@@ -792,10 +792,10 @@ void axi_test(long addr, int rnw, int siz, int len)
   if (verbose) printf("Enable capture and wrap counters...\n");
   burst.cap_rst = 0;
   burst.wrap_rst = 0;
-  burst.reset = 1;
+  burst.axi_addr = addr;
   axi_poke(&burst);
   usleep(sleep_dly);
-  if (verbose) axi_counters();
+  if (verbose); axi_counters();
   if (verbose) printf("Go...\n");
   burst.go = 1;
   axi_poke(&burst);
@@ -862,8 +862,10 @@ void axi_dipsw(void)
 
 int main(int argc, const char **argv)
 {
+  enum {burst=128};
+  char *memtest = 0;
   int bridge = 0;
-  int memtest = 0;
+  srand48(time(0));
   if (argc >= 2 && !strcmp(argv[1], "-c"))
     {
     capture = 1;
@@ -876,7 +878,17 @@ int main(int argc, const char **argv)
     }
   if (argc >= 2 && !strcmp(argv[1], "-t"))
     {
-    memtest = 1;
+      memtest = (char *)malloc(burst*16);
+      for (int i = 0; i < burst*16; i++) memtest[i] = mrand48();
+      if (strlen(argv[1]) > 2)
+        {
+          FILE *fd = fopen(argv[1]+2,"r");
+          if (fd)
+            {
+              fread(memtest, burst, 16, fd);
+              fclose(fd);
+            }
+        }
     --argc; ++argv;
     }
   if (argc >= 2 && !strncmp(argv[1], "-p", 2))
@@ -905,15 +917,13 @@ int main(int argc, const char **argv)
       dbg_master = 0;
       if (memtest)
         {
-          enum {burst=128};
           uint64_t *rand = calloc(burst, sizeof(uint64_t));
-          srand48(time(0));
           tstcnt = 0;
           my_mem_test(12, shared_addr);
           printf("Tests passed = %d\n", tstcnt);
           for (int l = 0; l < 16; l++)
             {
-              for (int j = 0; j < burst; j++) rand[j] = rand64();
+              for (int j = 0; j < burst; j++) rand[j] = rand64(); // memtest[j+burst*l];
               write_data(shared_addr, burst, rand);
               axi_test(vga_addr+(l<<10), 0, 8, burst);
             }
