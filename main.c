@@ -923,7 +923,7 @@ int main(int argc, const char **argv)
           printf("Tests passed = %d\n", tstcnt);
           for (int l = 0; l < 16; l++)
             {
-              for (int j = 0; j < burst; j++) rand[j] = rand64(); // memtest[j+burst*l];
+              for (int j = 0; j < burst; j++) rand[j] = memtest[j+burst*l];
               write_data(shared_addr, burst, rand);
               axi_test(vga_addr+(l<<10), 0, 8, burst);
             }
