@@ -9,9 +9,11 @@ static int width[256];
 static uint64_t prev[256];
 static int cnt, last;
 
-void open_vcd(void)
+void open_vcd(int vcdcnt)
 {
-  vcdf = fopen("test.vcd","w");
+  char nam[20];
+  sprintf(nam, "test%d.vcd", vcdcnt);
+  vcdf = fopen(nam,"w");
   assert(vcdf != NULL);
   memset(prev, -1, sizeof(prev));
   cnt = 0;

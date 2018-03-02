@@ -8,3 +8,4 @@ jtag_dummy.runs
 jtag_dummy.sim
 jtag_dummy.srcs
 test.vcd
+main_*.c

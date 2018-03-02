@@ -254,8 +254,8 @@ void show_tdo(uint32_t *rslt)
 }
 
 static jtag_mode_t inc_flag, wr_flag;
-static int dbg_master, verbose = 0;
-static uint64_t stallmask = 0; // was cpu_stall;
+static int dbg_master, capture = 0, verbose = 0;
+static uint64_t stallmask = 0; // was cpu_halt;
 
 void my_addr(jtag_addr_t addr)
 {
@@ -469,15 +469,15 @@ uint64_t cpu_ctrl(int cpu_addr, uint64_t cpu_data)
   // set up the data to write
   jtag_poke(debug_addr_lo, cpu_data);
   // Try to set debug request
-  ctrl = cpu_stb|cpu_stall|(cpu_addr&cpu_addr_mask);
-  verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
-  ctrl = cpu_we|cpu_stb|cpu_stall|(cpu_addr&cpu_addr_mask);
-  verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
-  ctrl = cpu_stb|stallmask|(cpu_addr&cpu_addr_mask);
-  verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
+  ctrl = cpu_req|cpu_halt|(cpu_addr&cpu_addr_mask);
+  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro);
+  ctrl = cpu_we|cpu_req|cpu_halt|(cpu_addr&cpu_addr_mask);
+  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro);
+  ctrl = cpu_req|stallmask|(cpu_addr&cpu_addr_mask);
+  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro);
   rslt = jtag_peek(debug_addr_lo);
   ctrl = stallmask|(cpu_addr&cpu_addr_mask);
-  verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
+  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro);
   printf("cpu_ctrl(0x%.4X,%s): wrote 0x%.16lX, read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), cpu_data, rslt);
   return rslt;
 }
@@ -487,16 +487,16 @@ uint64_t cpu_read(int cpu_addr)
   cpu_mode_t ctrl;
   uint64_t rslt;
   // Try to set debug request
-  ctrl = cpu_stb|stallmask|(cpu_addr&cpu_addr_mask);
-  verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
+  ctrl = cpu_req|stallmask|(cpu_addr&cpu_addr_mask);
+  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro);
   rslt = jtag_peek(debug_addr_lo);
   ctrl = stallmask|(cpu_addr&cpu_addr_mask);
-  verify_poke(debug_addr_hi, ctrl, cpu_ack_ro|cpu_bp_ro);
+  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro);
   printf("cpu_read(0x%.4X,%s): read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), rslt);
   return rslt;
 }
 
-void cpu_halt(void)
+void cpu_stop(void)
 {
   uint64_t old_dbg = cpu_read(DBG_CTRL);
   cpu_ctrl(DBG_CTRL, old_dbg|0x10000);
@@ -540,7 +540,7 @@ void cpu_flush(void)
 void cpu_debug(void)
 {
   int stopped;
-  cpu_halt();
+  cpu_stop();
   stopped = cpu_is_stopped();
   if (stopped)
     {
@@ -647,13 +647,13 @@ void axi_readout(long addr, int len)
 
 axi_t *dbg;
 uint64_t *cap_raw;
-int cap_offset;
+int cap_offset, vcdcnt = 0;
 enum {sleep_dly=100};
 
 static uint64_t ext(int wid)
 {
   int shift = cap_offset&63;
-  uint64_t retval;
+  uint64_t retval, mask = 1;
   uint64_t lo = cap_raw[cap_offset>>6];
   uint64_t hi = (cap_raw[(cap_offset>>6)+1] << 32) | (lo >> 32);  
   if (shift >= 32) // value is split across words (we assume width <= 32)
@@ -662,7 +662,7 @@ static uint64_t ext(int wid)
     }
   else
     retval = lo >> shift;    
-  retval &= (1 << wid)-1;
+  retval &= (mask << wid)-1;
   cap_offset += wid;
   return retval;
 }
@@ -738,7 +738,7 @@ void axi_capture_status(void)
       dbg[j].unused2   = ext(1);
       assert(cap_offset%256 == 0);
     }
-  open_vcd();
+  open_vcd(vcdcnt++);
   for (j = 0; j < len; j++)
     {
       dump_rec(dbg+j);
@@ -804,8 +804,9 @@ void axi_test(long addr, int rnw, int siz, int len)
     {
       axi_status();
       axi_proto_status();
-      axi_capture_status();
     }
+  if (capture)
+      axi_capture_status();
   burst.go = 0;
   axi_poke(&burst);
   axi_check_complete(axi_state_idle);
@@ -847,7 +848,7 @@ void axi_vga(const char *str)
              }
            }
          write_data(shared_addr, line, frambuf);
-         axi_test(vga_addr+(l<<10)-8, 0, 8, 128); // Why -8 ?
+         axi_test(vga_addr+(l<<10), 0, 8, 128);
        }
    }
 
@@ -863,6 +864,11 @@ int main(int argc, const char **argv)
 {
   int bridge = 0;
   int memtest = 0;
+  if (argc >= 2 && !strcmp(argv[1], "-c"))
+    {
+    capture = 1;
+    --argc; ++argv;
+    }
   if (argc >= 2 && !strcmp(argv[1], "-v"))
     {
     verbose = 1;

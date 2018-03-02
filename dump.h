@@ -54,7 +54,7 @@ typedef struct {
   uint64_t strt_wrt, strt_wdt, strt_wat, strt_rdt, strt_rat, wrt_fin, wdt_fin, rdt_fin, wat_fin, rat_fin;
 } axi_t;
 
-void open_vcd(void);
+void open_vcd(int vcdcnt);
 void dump_rec(axi_t *rec);
 void close_vcd(void);
 
