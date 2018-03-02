@@ -470,14 +470,14 @@ uint64_t cpu_ctrl(int cpu_addr, uint64_t cpu_data)
   jtag_poke(debug_addr_lo, cpu_data);
   // Try to set debug request
   ctrl = cpu_req|cpu_halt|(cpu_addr&cpu_addr_mask);
-  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro);
+  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   ctrl = cpu_we|cpu_req|cpu_halt|(cpu_addr&cpu_addr_mask);
-  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro);
+  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   ctrl = cpu_req|stallmask|(cpu_addr&cpu_addr_mask);
-  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro);
+  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   rslt = jtag_peek(debug_addr_lo);
   ctrl = stallmask|(cpu_addr&cpu_addr_mask);
-  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro);
+  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   printf("cpu_ctrl(0x%.4X,%s): wrote 0x%.16lX, read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), cpu_data, rslt);
   return rslt;
 }
@@ -488,10 +488,10 @@ uint64_t cpu_read(int cpu_addr)
   uint64_t rslt;
   // Try to set debug request
   ctrl = cpu_req|stallmask|(cpu_addr&cpu_addr_mask);
-  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro);
+  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   rslt = jtag_peek(debug_addr_lo);
   ctrl = stallmask|(cpu_addr&cpu_addr_mask);
-  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro);
+  verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   printf("cpu_read(0x%.4X,%s): read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), rslt);
   return rslt;
 }
