@@ -919,7 +919,10 @@ int main(int argc, const char **argv)
           uint64_t *chk1, *chk2, *rand = calloc(burst, sizeof(uint64_t));
           tstcnt = 0;
           my_mem_test(12, shared_addr);
-          printf("Tests passed = %d\n", tstcnt);
+          printf("Shared addr tests passed = %d\n", tstcnt);
+          tstcnt = 0;
+          my_mem_test(14, boot_addr);
+          printf("Boot addr tests passed = %d\n", tstcnt);
           for (int l = 0; l < 4; l++)
             {
               int matches = 0;

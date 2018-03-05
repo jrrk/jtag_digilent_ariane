@@ -14,7 +14,7 @@ typedef enum {cpu_addr_mask = 0xFFFF, cpu_halt = 0x10000, cpu_req = 0x20000, cpu
               cpu_resume = 0x80000, cpu_nofetch = 0x100000,
               cpu_gnt_ro = 0x200000, cpu_halted_ro = 0x400000, cpu_rvalid_ro = 0x800000} cpu_mode_t;
 
-typedef enum {cap_addr = 0x300000,
+typedef enum {boot_addr = 0xFF200000, cap_addr = 0x300000,
       proto_addr_lo = 0x400000, proto_addr_hi = 0x500000, status_addr = 0x600000, burst_addr = 0x700000,
       shared_addr = 0x800000, cap_buf = 0x900000, debug_addr_lo = 0xFFF00000, debug_addr_hi = 0xFFF80000} jtag_addr_t;
 

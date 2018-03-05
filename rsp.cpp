@@ -191,7 +191,7 @@ Rsp::decode(char* data, size_t len) {
 
 bool
 Rsp::cont(char* data, size_t len) {
-  uint64_t sig;
+  uint32_t sig;
   uint64_t addr;
   uint64_t npc;
   int i;
@@ -200,7 +200,7 @@ Rsp::cont(char* data, size_t len) {
 
   // strip signal first
   if (data[0] == 'C') {
-    if (sscanf(data, "C%lX;%lX", &sig, &addr) == 2)
+    if (sscanf(data, "C%X;%lX", &sig, &addr) == 2)
       npc_found = true;
   } else {
     if (sscanf(data, "c%lX", &addr) == 1)
@@ -210,10 +210,10 @@ Rsp::cont(char* data, size_t len) {
   if (npc_found) {
     dbgif = this->get_dbgif(m_thread_sel);
     // only when we have received an address
-    dbgif->read(DBG_PPC_REG, &npc);
+    dbgif->read(DBG_NPC_REG, &npc);
 
     if (npc != addr)
-      dbgif->write(DBG_PPC_REG, addr);
+      dbgif->write(DBG_NPC_REG, addr);
   }
 
   m_thread_sel = 0;
@@ -241,10 +241,10 @@ Rsp::step(char* data, size_t len) {
   if (sscanf(data, "%lx", &addr) == 1) {
     dbgif = this->get_dbgif(m_thread_sel);
     // only when we have received an address
-    dbgif->read(DBG_PPC_REG, &npc);
+    dbgif->read(DBG_NPC_REG, &npc);
 
     if (npc != addr)
-      dbgif->write(DBG_PPC_REG, addr);
+      dbgif->write(DBG_NPC_REG, addr);
   }
 
   m_thread_sel = 0;
@@ -429,6 +429,7 @@ bool
 Rsp::regs_send() {
   uint64_t gpr[32];
   uint64_t npc;
+  uint64_t ppc;
   char regs_str[1024];
   int i;
 
@@ -487,9 +488,7 @@ Rsp::reg_write(char* data, size_t len) {
   if (addr < 32)
     dbgif->gpr_write(addr, wdata);
   else if (addr == 32)
-    {
-    dbgif->write(DBG_PPC_REG, wdata);
-    }
+    dbgif->write(DBG_NPC_REG, wdata);
   else
     return this->send_str("E01");
 
@@ -741,7 +740,6 @@ Rsp::pc_read(uint64_t* pc) {
   dbgif->read(DBG_HIT_REG, &hit);
   dbgif->read(DBG_CAUSE_REG, &cause);
 
-#if 0
   if (hit & 0x1)
     *pc = npc;
   else if(cause & (1 << 31)) // interrupt
@@ -753,8 +751,7 @@ Rsp::pc_read(uint64_t* pc) {
   else if(cause == 5)
     *pc = ppc;
   else
-#endif
-    *pc = ppc;
+    *pc = npc;
 
   return true;
 }
@@ -839,7 +836,7 @@ Rsp::resumeCore(DbgIF* dbgif, bool step) {
 
   if (m_bp->at_addr(ppc)) {
     m_bp->disable(ppc);
-    dbgif->write(DBG_PPC_REG, ppc); // re-execute this instruction
+    dbgif->write(DBG_NPC_REG, ppc); // re-execute this instruction
     dbgif->write(DBG_CTRL_REG, 0x1); // single-step
     m_bp->enable(ppc);
     hasStepped = true;
@@ -882,7 +879,7 @@ Rsp::resumeCoresPrepare(DbgIF *dbgif, bool step) {
     log->debug("Core is stopped on a breakpoint, stepping to go over (addr: 0x%lx)\n", ppc);
 
     m_bp->disable(ppc);
-    dbgif->write(DBG_PPC_REG, ppc); // re-execute this instruction
+    dbgif->write(DBG_NPC_REG, ppc); // re-execute this instruction
     dbgif->write(DBG_CTRL_REG, 0x1); // single-step
     while (1) {
       uint64_t value;
@@ -906,14 +903,9 @@ Rsp::resumeCoresPrepare(DbgIF *dbgif, bool step) {
 
 void
 Rsp::resumeCores() {
-  if (m_dbgifs.size() == 1) {
     uint64_t value;
     this->get_dbgif(0)->read(DBG_CTRL_REG, &value);
     this->get_dbgif(0)->write(DBG_CTRL_REG, value & ~(1<<16));
-  } else {
-    uint64_t info = 0xFFFFFFFF;
-    m_mem->access(1, 0x10200028, 4, (uint64_t *)&info);
-  }
 }
 
 void
@@ -955,26 +947,34 @@ Rsp::resume(int tid, bool step) {
 
 bool
 Rsp::mem_read(char* data, size_t len) {
-  char buffer[512];
-  char reply[512];
+  uint8_t *buffer;
+  char *reply;
   uint64_t addr;
   uint64_t length;
-  uint64_t rdata;
-  int i;
-
+  uint32_t rdata;
+  int i, len2;
+  bool retval;
+  
   if (sscanf(data, "%lx,%lx", &addr, &length) != 2) {
     fprintf(stderr, "Could not parse packet\n");
     return false;
   }
 
-  m_mem->access(0, addr, length, (uint64_t *)buffer);
+  len2 = ((length+sizeof(uint64_t)-1)&(-sizeof(uint64_t)));
+  
+  buffer = (uint8_t *)malloc(len2);
+  reply = (char *)malloc(length*2+1);
+  m_mem->access(0, addr, len2, (uint64_t *)buffer);
 
   for(i = 0; i < length; i++) {
     rdata = buffer[i];
-    snprintf(&reply[i * 2], 3, "%02lx", rdata);
+    snprintf(&reply[i * 2], 3, "%02x", rdata);
   }
 
-  return this->send(reply, length*2);
+  retval = this->send(reply, length*2);
+  free(buffer);
+  free(reply);
+  return retval;
 }
 
 bool
@@ -1118,7 +1118,7 @@ Rsp::bp_remove(char* data, size_t len) {
   dbgif->read(DBG_PPC_REG, &ppc);
 
   if (addr == ppc) {
-    dbgif->write(DBG_PPC_REG, ppc); // re-execute this instruction
+    dbgif->write(DBG_NPC_REG, ppc); // re-execute this instruction
   }
 
   return this->send_str("OK");
