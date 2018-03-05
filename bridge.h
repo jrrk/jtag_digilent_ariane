@@ -2,8 +2,6 @@
 #define BRIDGE_H
 
 #include "fpga_if.h"
-#include "sim.h"
-
 #include "debug_if.h"
 #include "cache.h"
 #include "breakpoints.h"

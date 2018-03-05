@@ -62,8 +62,10 @@ FpgaIF::access(bool write, uint64_t addr, int size, uint64_t *buffer) {
           {
             // read
             rdata = read_data(boot_addr, beats);
+#if 0
             for (i = 0; i < beats; i++)
               printf("memread[%.016lX] = %.016lX\n", i*8+addr, rdata[i]);
+#endif
             memcpy(buffer, rdata, size);
           }
     }

@@ -916,13 +916,8 @@ int main(int argc, const char **argv)
       dbg_master = 0;
       if (memtest)
         {
+#if 0
           uint64_t *chk1, *chk2, *rand = calloc(burst, sizeof(uint64_t));
-          tstcnt = 0;
-          my_mem_test(12, shared_addr);
-          printf("Shared addr tests passed = %d\n", tstcnt);
-          tstcnt = 0;
-          my_mem_test(14, boot_addr);
-          printf("Boot addr tests passed = %d\n", tstcnt);
           for (int l = 0; l < 4; l++)
             {
               int matches = 0;
@@ -936,7 +931,6 @@ int main(int argc, const char **argv)
               axi_test(vga_addr+(l<<10), 1, 8, burst, burst*16);
               chk1 = read_data(shared_addr+burst*16, burst);
               chk2 = read_data(shared_addr, 1 << 11);
-#if 0
               for (int j = 0; j < burst; j++) msg1[j] = chk1[j]&0x7f;
               for (int j = 0; j < burst; j++) msg2[j] = chk2[j+burst*2]&0x7f;
               msg1[burst] = 0; msg2[burst] = 0; msg3[burst] = 0;
@@ -951,8 +945,18 @@ int main(int argc, const char **argv)
                     }
                 }
               printf("Matches = %d\n", matches);
-#endif              
             }
+          free(rand);
+#else
+          uint64_t *prev = read_data(boot_addr, 1 << 13);
+          tstcnt = 0;
+          my_mem_test(12, shared_addr);
+          printf("Shared addr tests passed = %d\n", tstcnt);
+          tstcnt = 0;
+          my_mem_test(14, boot_addr);
+          printf("Boot addr tests passed = %d\n", tstcnt);
+          write_data(boot_addr, 1 << 13, prev);
+#endif              
         }
       else
         {
