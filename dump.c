@@ -78,6 +78,17 @@ void open_vcd(int vcdcnt)
 	width['['] = 1;
 	width['\\'] = 1;
 	width[']'] = 3;
+	width['^'] = 3;
+	width['_'] = 8;
+	width['`'] = 1;
+	width['a'] = 64;
+	width['b'] = 16;
+	width['c'] = 64;
+	width['d'] = 1;
+	width['e'] = 1;
+	width['f'] = 14;
+	width['g'] = 1;
+	width['h'] = 18;
 
         name['!'] = "cap_address";
         name['"'] = "error";
@@ -140,6 +151,17 @@ void open_vcd(int vcdcnt)
 	name['['] = "wat_fin";
 	name['\\'] = "rat_fin";
 	name[']'] = "state_wrd";
+	name['^'] = "state_rac";
+	name['_'] = "boot_we";
+	name['`'] = "boot_en";
+	name['a'] = "boot_wdata";
+	name['b'] = "boot_addr";
+	name['c'] = "boot_rdata";
+	name['d'] = "write_valid";
+	name['e'] = "read_valid";
+	name['f'] = "wrap_addr";
+	name['g'] = "wrap_en";
+	name['h'] = "wrap_rdata";
 
 	fprintf(vcdf, "$date\n");
 	fprintf(vcdf, "	Wed Feb 21 14:40:43 2018\n");
@@ -272,6 +294,17 @@ void dump_rec(axi_t *rec)
 	case '[': dump(i, w, rec->wat_fin); break;
 	case '\\': dump(i, w, rec->rat_fin); break;
         case ']': dump(i, w, rec->state_wrd); break;
+        case '^': dump(i, w, rec->state_rac); break;
+        case '_': dump(i, w, rec->boot_we); break;
+        case '`': dump(i, w, rec->boot_en); break;
+        case 'a': dump(i, w, rec->boot_wdata); break;
+        case 'b': dump(i, w, rec->boot_addr); break;
+        case 'c': dump(i, w, rec->boot_rdata); break;
+        case 'd': dump(i, w, rec->write_valid); break;
+        case 'e': dump(i, w, rec->read_valid); break;
+        case 'f': dump(i, w, rec->wrap_addr); break;
+        case 'g': dump(i, w, rec->wrap_en); break;
+        case 'h': dump(i, w, rec->wrap_rdata); break;
         default: break;
         }
     }
@@ -280,7 +313,6 @@ void dump_rec(axi_t *rec)
 
 void close_vcd(void)
 {
-	fprintf(vcdf, "x\"\n");
 	fprintf(vcdf, "$end\n");
         fclose(vcdf);
 }

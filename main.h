@@ -7,12 +7,11 @@ extern "C" {
 
 #include <stdint.h>
 
-typedef enum {rd_mode = 0L, wr_mode = 1L << 32, inc_mode = 1L << 33,
-      dbg_req = 1L<<34, dbg_resume = 2L<<34, dbg_halt = 4L<<34, dbg_fetch = 8L<<34} jtag_mode_t;
+typedef enum {rd_mode = 0L, wr_mode = 1L << 32, inc_mode = 1L << 33} jtag_mode_t;
 
 typedef enum {cpu_addr_mask = 0xFFFF, cpu_halt = 0x10000, cpu_req = 0x20000, cpu_we = 0x40000,
-              cpu_resume = 0x80000, cpu_nofetch = 0x100000,
-              cpu_gnt_ro = 0x200000, cpu_halted_ro = 0x400000, cpu_rvalid_ro = 0x800000} cpu_mode_t;
+              cpu_resume = 0x80000, cpu_nofetch = 0x100000, cpu_capture = 0x200000,
+              cpu_gnt_ro = 0x400000, cpu_halted_ro = 0x800000, cpu_rvalid_ro = 0x1000000} cpu_mode_t;
 
 typedef enum {boot_addr = 0xFF200000, cap_addr = 0x300000,
       proto_addr_lo = 0x400000, proto_addr_hi = 0x500000, status_addr = 0x600000, burst_addr = 0x700000,

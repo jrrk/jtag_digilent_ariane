@@ -50,8 +50,10 @@ typedef struct {
   uint64_t b_ready;
   uint64_t b_valid;
 
-  uint64_t unused, unused2, address, done, busy, error, state, state_rsp, state_wrd;
+  uint64_t unused, unused2, address, done, busy, error, state, state_rsp, state_wrd, state_rac;
   uint64_t strt_wrt, strt_wdt, strt_wat, strt_rdt, strt_rat, wrt_fin, wdt_fin, rdt_fin, wat_fin, rat_fin;
+  uint64_t boot_we, boot_en, boot_wdata, boot_addr, boot_rdata;
+  uint64_t write_valid, read_valid, wrap_addr, wrap_en, wrap_rdata;
 } axi_t;
 
 void open_vcd(int vcdcnt);

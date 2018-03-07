@@ -48,23 +48,23 @@ FpgaIF::access(bool write, uint64_t addr, int size, uint64_t *buffer) {
       if (write)
           {
             // write
-#if 0
-            for (i = 0; i < beats; i++)
-              printf("memwrite[%.016lX] = %.016lX\n", i*8+addr, buffer[i]);
+#if 1
+            for (i = 0; i < beats; i++) if (i*8+addr < 0x40000020)
+              printf("bootmemwrite[%.016lX] = %.016lX\n", i*8+addr, buffer[i]);
 #endif
             write_data(boot_addr, beats, buffer);
             rdata = read_data(boot_addr, beats);
             for (i = 0; i < beats; i++)
               if (rdata[i] != buffer[i])
-                printf("%d/%d: memverify[%.016lX] = %.016lX (was %.016lX)\n", i+1, beats+1, i*8+addr, rdata[i], buffer[i]);
+                printf("%d/%d: bootmemverify[%.016lX] = %.016lX (was %.016lX)\n", i+1, beats+1, i*8+addr, rdata[i], buffer[i]);
           }
         else
           {
             // read
             rdata = read_data(boot_addr, beats);
-#if 0
-            for (i = 0; i < beats; i++)
-              printf("memread[%.016lX] = %.016lX\n", i*8+addr, rdata[i]);
+#if 1
+            for (i = 0; i < beats; i++) if (i*8+addr < 0x40000020)
+              printf("bootmemread[%.016lX] = %.016lX\n", i*8+addr, rdata[i]);
 #endif
             memcpy(buffer, rdata, size);
           }

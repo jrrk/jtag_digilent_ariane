@@ -972,6 +972,7 @@ Rsp::mem_read(char* data, size_t len) {
   }
 
   retval = this->send(reply, length*2);
+  
   free(buffer);
   free(reply);
   return retval;

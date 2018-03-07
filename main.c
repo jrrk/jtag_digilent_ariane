@@ -139,7 +139,7 @@ int my_command_init(int verbose)
   my_command.argc = 2;
   my_command.argv = argv_7;
   handle_help_add_command(&my_command);
-  if (verbose)
+  if (verbose > 1)
     {
       my_command.name = "debug_level";
       my_command.argc = 1;
@@ -255,7 +255,6 @@ void show_tdo(uint32_t *rslt)
 
 static jtag_mode_t inc_flag, wr_flag;
 static int dbg_master, capture = 0, verbose = 0;
-static uint64_t stallmask = 0; // was cpu_halt;
 
 void my_addr(jtag_addr_t addr)
 {
@@ -435,7 +434,7 @@ const char *dbgnam(int reg)
        }
 }
 
-void jtag_poke(int addr, uint64_t data)
+void jtag_poke(uint32_t addr, uint64_t data)
 {
   if (verbose)
     printf("jtag_poke(%X, %lX);\n", addr, data);
@@ -451,7 +450,7 @@ uint64_t jtag_peek(int addr)
   return retval;
 }
 
-void verify_poke(int addr, uint64_t data, uint64_t mask)
+void verify_poke(uint32_t addr, uint64_t data, uint64_t mask)
 {
   uint64_t rslt;
   jtag_poke(addr, data);
@@ -469,16 +468,17 @@ uint64_t cpu_ctrl(int cpu_addr, uint64_t cpu_data)
   // set up the data to write
   jtag_poke(debug_addr_lo, cpu_data);
   // Try to set debug request
-  ctrl = cpu_req|cpu_halt|(cpu_addr&cpu_addr_mask);
+  ctrl = cpu_req|cpu_halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
-  ctrl = cpu_we|cpu_req|cpu_halt|(cpu_addr&cpu_addr_mask);
+  ctrl = cpu_we|cpu_req|cpu_halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
-  ctrl = cpu_req|stallmask|(cpu_addr&cpu_addr_mask);
+  ctrl = cpu_req|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   rslt = jtag_peek(debug_addr_lo);
-  ctrl = stallmask|(cpu_addr&cpu_addr_mask);
+  ctrl = cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
-  printf("cpu_ctrl(0x%.4X,%s): wrote 0x%.16lX, read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), cpu_data, rslt);
+  if (verbose)
+    printf("cpu_ctrl(0x%.4X,%s): wrote 0x%.16lX, read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), cpu_data, rslt);
   return rslt;
 }
 
@@ -487,12 +487,13 @@ uint64_t cpu_read(int cpu_addr)
   cpu_mode_t ctrl;
   uint64_t rslt;
   // Try to set debug request
-  ctrl = cpu_req|stallmask|(cpu_addr&cpu_addr_mask);
+  ctrl = cpu_req|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   rslt = jtag_peek(debug_addr_lo);
-  ctrl = stallmask|(cpu_addr&cpu_addr_mask);
+  ctrl = cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
-  printf("cpu_read(0x%.4X,%s): read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), rslt);
+  if (verbose)
+    printf("cpu_read(0x%.4X,%s): read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), rslt);
   return rslt;
 }
 
@@ -655,7 +656,8 @@ static uint64_t ext(int wid)
   int shift = cap_offset&63;
   uint64_t retval, mask = 1;
   uint64_t lo = cap_raw[cap_offset>>6];
-  uint64_t hi = (cap_raw[(cap_offset>>6)+1] << 32) | (lo >> 32);  
+  uint64_t hi = (cap_raw[(cap_offset>>6)+1] << 32) | (lo >> 32);
+  assert(wid <= 32);
   if (shift >= 32) // value is split across words (we assume width <= 32)
     {
       retval = hi >> (shift-32);
@@ -674,14 +676,16 @@ void axi_capture_status(void)
   printf("Capture address: %.16lX\n", status);
   int len = status+1;
   cap_offset = 0;
-  cap_raw = read_data(cap_buf, len*4);
+  cap_raw = read_data(cap_buf, len*8);
   dbg = (axi_t *)calloc(len, sizeof(axi_t));
   for (j = 0; j < len; j++)
     {
       dbg[j].ar_addr   = ext(32);
       dbg[j].aw_addr   = ext(32);
       dbg[j].r_data    = ext(32);
+      dbg[j].r_data   |= ext(32) << 32;
       dbg[j].w_data    = ext(32);
+      dbg[j].w_data   |= ext(32) << 32;
       dbg[j].b_ready   = ext(1);
       dbg[j].b_id      = ext(4);
       dbg[j].b_resp    = ext(2);
@@ -730,13 +734,24 @@ void axi_capture_status(void)
       dbg[j].rdt_fin   = ext(1);
       dbg[j].wat_fin   = ext(1);
       dbg[j].rat_fin   = ext(1);
-      dbg[j].unused    = ext(1);
-      dbg[j].address   = ext(6);
+      dbg[j].state_rac = ext(3);
       dbg[j].state_wrd = ext(3);
       dbg[j].state     = ext(3);
       dbg[j].state_rsp = ext(3);
-      dbg[j].unused2   = ext(1);
-      assert(cap_offset%256 == 0);
+      dbg[j].address   = ext(9);
+      dbg[j].boot_we   = ext(8);
+      dbg[j].boot_en   = ext(1);
+      dbg[j].boot_wdata= ext(32);
+      dbg[j].boot_wdata|= ext(32) << 32;
+      dbg[j].boot_addr = ext(16);
+      dbg[j].boot_rdata= ext(32);
+      dbg[j].boot_rdata|= ext(32) << 32;
+      dbg[j].write_valid = ext(1);
+      dbg[j].read_valid = ext(1);
+      dbg[j].wrap_addr  = ext(14);
+      dbg[j].wrap_en    = ext(1);
+      dbg[j].wrap_rdata = ext(18);
+      assert(cap_offset%512 == 0);
     }
   open_vcd(vcdcnt++);
   for (j = 0; j < len; j++)
@@ -778,7 +793,7 @@ void axi_test(long addr, int rnw, int siz, int len, int bufadr)
   burst.cap_rst = 1;
   burst.wrap_rst = 1;
   burst.go = 0;
-  burst.inc = 0;
+  burst.inc = 1;
   burst.rnw = rnw;
   burst.size = siz;
   burst.length = len;
@@ -815,8 +830,8 @@ void axi_test(long addr, int rnw, int siz, int len, int bufadr)
 #define HID_LED 0x400F
 #define HID_DIP 0x401F
 
+enum {burst=128};
 enum {scroll_start=0, base=0x40000000};
-//enum {scroll_start=0, base=0x00000000};
 volatile uint32_t *const sd_base = (uint32_t *)(base+0x01010000);
 volatile uint32_t *const hid_vga_ptr = (uint32_t *)(base+0x01008000);
 const size_t eth = (base+0x01020000), hid = (base+0x01000000);
@@ -859,40 +874,77 @@ void axi_dipsw(void)
   axi_test(hid + HID_LED*4, 0, 4, 1, -8);
 }
 
-int main(int argc, const char **argv)
+void bist(char *contents)
 {
-  enum {burst=128};
-  char *memtest = 0;
-  int bridge = 0;
-  srand48(time(0));
-  if (argc >= 2 && !strcmp(argv[1], "-c"))
+  uint64_t *chk1, *chk2, *rand = calloc(burst, sizeof(uint64_t));
+  char *vidtest = (char *)malloc(burst*16);
+  for (int i = 0; i < burst*16; i++) vidtest[i] = mrand48();
+  if (*contents)
     {
-    capture = 1;
-    --argc; ++argv;
-    }
-  if (argc >= 2 && !strcmp(argv[1], "-v"))
-    {
-    verbose = 1;
-    --argc; ++argv;
-    }
-  if (argc >= 2 && !strcmp(argv[1], "-t"))
-    {
-      memtest = (char *)malloc(burst*16);
-      for (int i = 0; i < burst*16; i++) memtest[i] = mrand48();
-      if (strlen(argv[1]) > 2)
+      FILE *fd = fopen(contents,"r");
+      if (fd)
         {
-          FILE *fd = fopen(argv[1]+2,"r");
-          if (fd)
+          fread(vidtest, burst, 16, fd);
+          fclose(fd);
+        }
+    }
+  for (int l = 0; l < 4; l++)
+    {
+      int matches = 0;
+      char msg1[burst+1];
+      char msg2[burst+1];
+      char msg3[burst+1];
+      for (int j = 0; j < burst; j++) rand[j] = rand64()<<8;
+      usleep(sleep_dly);
+      write_data(shared_addr+burst*8, burst, rand);
+      axi_test(vga_addr+(l<<10), 0, 8, burst, burst*8);
+      axi_test(vga_addr+(l<<10), 1, 8, burst, burst*16);
+      chk1 = read_data(shared_addr+burst*16, burst);
+      chk2 = read_data(shared_addr, 1 << 11);
+      for (int j = 0; j < burst; j++) msg1[j] = chk1[j]&0x7f;
+      for (int j = 0; j < burst; j++) msg2[j] = chk2[j+burst*2]&0x7f;
+      msg1[burst] = 0; msg2[burst] = 0; msg3[burst] = 0;
+      for (int j = 0; j < (1 << 11) - burst; j++)
+        {
+          for (int k = 0; k < burst; k++) msg3[k] = chk2[j+k]&0x7f;
+          if ((msg3[0] == msg1[0]) && (msg3[1] == msg1[1]))
             {
-              fread(memtest, burst, 16, fd);
-              fclose(fd);
+              ++matches;
+              for (l = 0; l < 3; l++)
+                printf("Memory match(off=%d+%d): %.2X,%.2X,%.2X\n", j, l, msg1[l], msg2[l], msg3[l]);
             }
         }
-    --argc; ++argv;
+      printf("Matches = %d\n", matches);
     }
-  if (argc >= 2 && !strncmp(argv[1], "-p", 2))
+  free(rand);
+}
+
+int main(int argc, const char **argv)
+{
+  int memtest = 0;
+  int bridge = 0;
+  int vidtest = 0;
+  srand48(time(0));
+  while (argc >= 2 && (argv[1][0]=='-'))
     {
-      bridge = atoi(2+argv[1]);
+    switch(argv[1][1])
+      {
+      case 'c':
+        capture = 1;
+        break;
+      case 'p':
+        bridge = atoi(2+argv[1]);
+        break;
+      case 't':
+        memtest = 1;
+        break;
+      case 'v':
+        verbose = 1 + atoi(2+argv[1]);
+        break;
+      case 'z':
+        vidtest = 1;
+        break;
+      }
     --argc; ++argv;
     }
   my_command_init(verbose);
@@ -914,56 +966,45 @@ int main(int argc, const char **argv)
       my_svf(STATE, "IDLE", NULL);
       my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
       dbg_master = 0;
+      cpu_debug();
       if (memtest)
         {
-#if 0
-          uint64_t *chk1, *chk2, *rand = calloc(burst, sizeof(uint64_t));
-          for (int l = 0; l < 4; l++)
-            {
-              int matches = 0;
-              char msg1[burst+1];
-              char msg2[burst+1];
-              char msg3[burst+1];
-              for (int j = 0; j < burst; j++) rand[j] = rand64()<<8;
-              usleep(sleep_dly);
-              write_data(shared_addr+burst*8, burst, rand);
-              axi_test(vga_addr+(l<<10), 0, 8, burst, burst*8);
-              axi_test(vga_addr+(l<<10), 1, 8, burst, burst*16);
-              chk1 = read_data(shared_addr+burst*16, burst);
-              chk2 = read_data(shared_addr, 1 << 11);
-              for (int j = 0; j < burst; j++) msg1[j] = chk1[j]&0x7f;
-              for (int j = 0; j < burst; j++) msg2[j] = chk2[j+burst*2]&0x7f;
-              msg1[burst] = 0; msg2[burst] = 0; msg3[burst] = 0;
-              for (int j = 0; j < (1 << 11) - burst; j++)
-                {
-                  for (int k = 0; k < burst; k++) msg3[k] = chk2[j+k]&0x7f;
-                  if ((msg3[0] == msg1[0]) && (msg3[1] == msg1[1]))
-                    {
-                      ++matches;
-                      for (l = 0; l < 3; l++)
-                        printf("Memory match(off=%d+%d): %.2X,%.2X,%.2X\n", j, l, msg1[l], msg2[l], msg3[l]);
-                    }
-                }
-              printf("Matches = %d\n", matches);
-            }
-          free(rand);
-#else
-          uint64_t *prev = read_data(boot_addr, 1 << 13);
+          uint64_t *chk1, *chk2, *pattern1 = calloc(burst, sizeof(uint64_t));;
+          for (int j = 0; j < burst; j++) pattern1[j] = 1ULL << j&63;
           tstcnt = 0;
           my_mem_test(12, shared_addr);
           printf("Shared addr tests passed = %d\n", tstcnt);
           tstcnt = 0;
           my_mem_test(14, boot_addr);
           printf("Boot addr tests passed = %d\n", tstcnt);
-          write_data(boot_addr, 1 << 13, prev);
-#endif              
+          
+          axi_test(base, 1, 8, burst, 0);
+          chk1 = read_data(shared_addr, burst);
+          chk2 = read_data(boot_addr, burst);
+          for (int i = 0; i < burst; i++)
+            {
+              if (chk1[i] != chk2[i])
+                {
+                  printf("Readback mismatch at offset %d (%.016lX != %.016lX)\n", i, chk1[i], chk2[i]);
+                }
+            }
+          my_mem_test(12, shared_addr);
+          axi_test(base, 0, 8, burst, 0);
+          chk1 = read_data(shared_addr, burst);
+          chk2 = read_data(boot_addr, burst);
+          for (int i = 0; i < burst; i++)
+            {
+              if (chk1[i] != chk2[i])
+                {
+                  printf("Readback mismatch at offset %d (%.016lX != %.016lX)\n", i, chk1[i], chk2[i]);
+                }
+            }
         }
-      else
+      if (vidtest)
         {
           axi_vga(" ** Hello JTAG Master ** ");
           axi_dipsw();
         }
-      cpu_debug();
       if (bridge)
         {
           new_bridge(bridge);
