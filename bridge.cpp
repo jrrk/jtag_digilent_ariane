@@ -95,7 +95,8 @@ void Bridge::user(const char *str, ...)
 {
   va_list va;
   va_start(va, str);
-  vprintf(str, va);
+  if (verbose)
+    vprintf(str, va);
   va_end(va);
 }
 
@@ -103,7 +104,8 @@ void Bridge::debug(const char *str, ...)
 {
   va_list va;
   va_start(va, str);
-  vprintf(str, va);
+  if (verbose)
+    vprintf(str, va);
   va_end(va);
 }
 

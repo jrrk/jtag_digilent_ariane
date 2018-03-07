@@ -254,7 +254,8 @@ void show_tdo(uint32_t *rslt)
 }
 
 static jtag_mode_t inc_flag, wr_flag;
-static int dbg_master, capture = 0, verbose = 0;
+static int dbg_master, capture = 0;
+int verbose = 0;
 
 void my_addr(jtag_addr_t addr)
 {
@@ -322,6 +323,14 @@ void raw_write_data(int len, uint64_t *cnvptr)
 void write_data(jtag_addr_t addr, int len, uint64_t *cnvptr)
 {
   inc_flag = inc_mode;
+  wr_flag = wr_mode;
+  my_addr(addr);
+  raw_write_data(len, cnvptr);
+}
+
+void write_data_noinc(jtag_addr_t addr, int len, uint64_t *cnvptr)
+{
+  inc_flag = 0;
   wr_flag = wr_mode;
   my_addr(addr);
   raw_write_data(len, cnvptr);
@@ -461,25 +470,49 @@ void verify_poke(uint32_t addr, uint64_t data, uint64_t mask)
     }
 }
 
-uint64_t cpu_ctrl(int cpu_addr, uint64_t cpu_data)
+uint64_t verify_cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt)
 {
   cpu_mode_t ctrl;
-  uint64_t rslt;
+  uint64_t rslt, halt = force_halt ? cpu_halt : 0;
   // set up the data to write
   jtag_poke(debug_addr_lo, cpu_data);
   // Try to set debug request
-  ctrl = cpu_req|cpu_halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
+  ctrl = cpu_req|halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
-  ctrl = cpu_we|cpu_req|cpu_halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
+  ctrl = cpu_we|cpu_req|halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   ctrl = cpu_req|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   rslt = jtag_peek(debug_addr_lo);
-  ctrl = cpu_nofetch|(cpu_addr&cpu_addr_mask);
+  ctrl = (cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   if (verbose)
     printf("cpu_ctrl(0x%.4X,%s): wrote 0x%.16lX, read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), cpu_data, rslt);
   return rslt;
+}
+
+void cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt)
+{
+#if 0  
+  uint64_t instr[4], halt = force_halt ? cpu_halt/* |cpu_nofetch */ : 0;
+  // set up the data to write
+  jtag_poke(debug_addr_lo, cpu_data);
+  // Try to set debug request
+  instr[0] = cpu_req|halt|(cpu_addr&cpu_addr_mask);
+  instr[1] = cpu_we|instr[0];
+  instr[2] = instr[0];
+  instr[3] = instr[0]&~cpu_req;
+  write_data_noinc(debug_addr_hi, 4, instr);
+  if (verbose)
+    {
+    printf("cpu_ctrl(0x%.4X,%s): wrote 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), cpu_data);
+    }
+#else
+  static int prev_force;
+  if (force_halt < 0) prev_force = 0;
+  if (force_halt > 0) prev_force = 1;
+  verify_cpu_ctrl(cpu_addr, cpu_data, prev_force);
+#endif  
 }
 
 uint64_t cpu_read(int cpu_addr)
@@ -500,16 +533,25 @@ uint64_t cpu_read(int cpu_addr)
 void cpu_stop(void)
 {
   uint64_t old_dbg = cpu_read(DBG_CTRL);
-  cpu_ctrl(DBG_CTRL, old_dbg|0x10000);
+  cpu_ctrl(DBG_CTRL, old_dbg|0x10000, 1);
 }
 
 int cpu_is_stopped(void)
 {
-  uint64_t data = cpu_read(DBG_CTRL);
-  if (data & 0x10000)
-    return true;
+  //  uint64_t data = cpu_read(DBG_CTRL) & 0x10000;
+  uint64_t flags = jtag_peek(debug_addr_hi) & cpu_halted_ro;
+  if (flags)
+    {
+      putchar('*');
+      fflush(stdout);
+      return true;
+    }
   else
-    return false;
+    {
+      putchar('#');
+      fflush(stdout);
+      return false;
+    }
 }
 
 uint64_t gpr_read(int gpr)
@@ -519,7 +561,7 @@ uint64_t gpr_read(int gpr)
 
 void gpr_write(int gpr, uint64_t data)
 {
-  cpu_ctrl(DBG_GPR+gpr*8, data);
+  cpu_ctrl(DBG_GPR+gpr*8, data, 0);
 }
 
 uint64_t csr_read(int csr)
@@ -529,13 +571,13 @@ uint64_t csr_read(int csr)
 
 void csr_write(int csr, uint64_t data)
 {
-  cpu_ctrl(CSR_BASE+csr*8, data);
+  cpu_ctrl(CSR_BASE+csr*8, data, 0);
 }
 
 void cpu_flush(void)
 {
   uint64_t data = cpu_read(DBG_NPC);
-  cpu_ctrl(DBG_NPC, data);
+  cpu_ctrl(DBG_NPC, data, 1);
 }
 
 void cpu_debug(void)
@@ -841,28 +883,54 @@ static long vga_addr = (long)(base+0x01008000);
 void axi_vga(const char *str)
 {
      enum {line=64*4};
-     uint64_t *frambuf = calloc(line, sizeof(uint64_t));
-     for (int l = 0; l < 16; l++)
+     uint64_t *chk1, *chk2;
+     uint8_t *frambuf = calloc(line, sizeof(uint64_t));
+     for (int l = 0; l < 4; l++)
        {
-         if ((l < 7) || (l > 9))
+#if 0         
+         for (int i = 0; i < line*sizeof(uint64_t); i+=sizeof(uint64_t))
            {
-             for (int i = 0; i < line; i++)
+           frambuf[i] = mrand48()%26 + 'A';
+           frambuf[i+1] = ' ';
+           frambuf[i+2] = mrand48()%10 + '0';
+           frambuf[i+3] = '~';
+           frambuf[i+4] = mrand48()%26 + 'a';
+           frambuf[i+5] = '!';
+           frambuf[i+6] = mrand48()%10 + ' ';
+           frambuf[i+7] = '?';
+           }
+#else
+         if ((l < 1) || (l > 2))
+           {
+             for (int i = 0; i < line*sizeof(uint64_t); i++)
                frambuf[i] = '0' + i%10 + (l*16&0x3f);
            }
          else
            {
-           memset(frambuf, ' ', line * sizeof(uint64_t));
-           if (l == 8)
-             {
+             memset(frambuf, ' ', line*sizeof(uint64_t));
+             if (l == 2)
+               {
                int len = strlen(str);
                for (int i = 0; i < len; i++)
                  {
-                   frambuf[line/8+i-len/2] = str[i];
+                   frambuf[line*2+i-len*2] = str[i];
                  }
-             }
+               }
            }
-         write_data(shared_addr, line, frambuf);
-         axi_test(vga_addr+(l<<10), 0, 8, 128, -8);
+#endif         
+         write_data(shared_addr, line, (uint64_t *)frambuf);
+         axi_test(vga_addr+(l<<10), 0, 8, 128, 0);
+         
+         axi_test(vga_addr+(l<<10), 1, 8, burst, 1<<10);
+         chk1 = read_data(shared_addr+(1<<10), line);
+         chk2 = (uint64_t *)frambuf;
+          for (int i = 0; i < burst; i++)
+            {
+              if (chk1[i] != chk2[i])
+                {
+                  printf("Readback mismatch at offset %d (%.016lX != %.016lX)\n", i, chk1[i], chk2[i]);
+                }
+            }
        }
    }
 

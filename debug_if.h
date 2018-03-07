@@ -34,6 +34,8 @@ class DbgIF {
     bool is_stopped();
 
     bool write(unsigned int addr, uint64_t wdata);
+    bool write_and_stop(unsigned int addr, uint64_t wdata);
+    bool write_and_go(unsigned int addr, uint64_t wdata);
     bool read(unsigned int addr, uint64_t* rdata);
 
     bool gpr_write(unsigned int addr, uint64_t wdata);

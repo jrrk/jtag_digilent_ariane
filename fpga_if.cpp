@@ -45,15 +45,16 @@ FpgaIF::access(bool write, uint64_t addr, int size, uint64_t *buffer) {
   if ((addr >= 0x40000000) && (addr <= 0x4000FFFF))
     {
       int i, beats = (size+sizeof(uint64_t)-1)/sizeof(uint64_t);
+      jtag_addr_t baddr = (jtag_addr_t)(boot_addr+(addr&0xFFFF));
       if (write)
           {
             // write
-#if 1
-            for (i = 0; i < beats; i++) if (i*8+addr < 0x40000020)
+#if 0
+            for (i = 0; i < beats; i++) // if (i*8+addr < 0x40000100)
               printf("bootmemwrite[%.016lX] = %.016lX\n", i*8+addr, buffer[i]);
 #endif
-            write_data(boot_addr, beats, buffer);
-            rdata = read_data(boot_addr, beats);
+            write_data(baddr, beats, buffer);
+            rdata = read_data(baddr, beats);
             for (i = 0; i < beats; i++)
               if (rdata[i] != buffer[i])
                 printf("%d/%d: bootmemverify[%.016lX] = %.016lX (was %.016lX)\n", i+1, beats+1, i*8+addr, rdata[i], buffer[i]);
@@ -61,8 +62,8 @@ FpgaIF::access(bool write, uint64_t addr, int size, uint64_t *buffer) {
         else
           {
             // read
-            rdata = read_data(boot_addr, beats);
-#if 1
+            rdata = read_data(baddr, beats);
+#if 0
             for (i = 0; i < beats; i++) if (i*8+addr < 0x40000020)
               printf("bootmemread[%.016lX] = %.016lX\n", i*8+addr, rdata[i]);
 #endif

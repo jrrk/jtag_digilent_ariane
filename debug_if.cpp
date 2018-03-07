@@ -26,7 +26,19 @@ DbgIF::flush() {
 
 bool
 DbgIF::write(uint32_t addr, uint64_t wdata) {
-  cpu_ctrl(addr, wdata);
+  cpu_ctrl(addr, wdata, 0);
+  return true;
+}
+
+bool
+DbgIF::write_and_stop(uint32_t addr, uint64_t wdata) {
+  cpu_ctrl(addr, wdata, 1);
+  return true;
+}
+
+bool
+DbgIF::write_and_go(uint32_t addr, uint64_t wdata) {
+  cpu_ctrl(addr, wdata, -1);
   return true;
 }
 
@@ -50,16 +62,7 @@ DbgIF::halt() {
 
 bool
 DbgIF::is_stopped() {
-  uint64_t data;
-  if (!this->read(DBG_CTRL_REG, &data)) {
-    fprintf(stderr, "debug_is_stopped: Reading from CTRL reg failed\n");
-    return false;
-  }
-
-  if (data & 0x10000)
-    return true;
-  else
-    return false;
+    return cpu_is_stopped();
 }
 
 bool
@@ -78,7 +81,7 @@ DbgIF::gpr_read(unsigned int i, uint64_t *data) {
 
 bool
 DbgIF::gpr_write(unsigned int i, uint64_t data) {
-  return this->write(DBG_GPR + i * 8, data);
+  return this->write_and_stop(DBG_GPR + i * 8, data);
 }
 
 bool
@@ -88,7 +91,7 @@ DbgIF::csr_read(unsigned int i, uint64_t *data) {
 
 bool
 DbgIF::csr_write(unsigned int i, uint64_t data) {
-  return this->write(CSR_BASE + i * 8, data);
+  return this->write_and_stop(CSR_BASE + i * 8, data);
 }
 
 void
