@@ -181,7 +181,8 @@ typedef enum {
   uint64_t ntohll(uint64_t addr);
   void new_bridge(int portNumber);
   int cpu_is_stopped(void);
-  
+  const char *regnum(int num);
+
 #ifdef __cplusplus
 };
 #endif

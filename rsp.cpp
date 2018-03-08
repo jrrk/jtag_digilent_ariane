@@ -1,6 +1,7 @@
 
 #include "rsp.h"
 #include "main.h"
+#include "riscv-tdep.h"
 
 enum mp_type {
   BP_MEMORY   = 0,
@@ -457,16 +458,20 @@ Rsp::reg_read(char* data, size_t len) {
     return false;
   }
 
-  if (addr < 32)
+  printf("reg_read(%s);\n", regnum(addr));
+
+  if (addr < RISCV_PC_REGNUM)
     this->get_dbgif(m_thread_sel)->gpr_read(addr, &rdata);
-  else if (addr == 0x20)
+  else if (addr == RISCV_PC_REGNUM)
     this->pc_read(&rdata);
-  else if (addr == 1041)
-    this->send_str("12345678DEADBEEF");
+  else if (addr == RISCV_CSR_MISA_REGNUM)
+    this->get_dbgif(m_thread_sel)->csr_read(CSR_MISA, &rdata);
+  else if (addr == RISCV_PRIV_REGNUM)
+    rdata = 0x3; // Fake this for now and assume machine mode
   else
     return this->send_str("");
 
-  rdata = htonl(rdata);
+  rdata = htonll(rdata);
   snprintf(data_str, 17, "%016lx", rdata);
 
   return this->send_str(data_str);
@@ -486,7 +491,7 @@ Rsp::reg_write(char* data, size_t len) {
 
   wdata = ntohll(wdata);
 
-  printf("reg_write(%lX,%.016lX);\n", addr, wdata);
+  printf("reg_write(%ld,%.016lX);\n", addr, wdata);
   
   dbgif = this->get_dbgif(m_thread_sel);
   if (addr < 32)
