@@ -5,57 +5,45 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define INSN_IS_COMPRESSED(instr) ((instr & 0x3) != 0x3)
-#define INSN_BP_COMPRESSED   0x8002
-#define INSN_BP              0x00100073
-
 BreakPoints::BreakPoints(MemIF* mem, Cache* cache) {
   m_mem   = mem;
   m_cache = cache;
 }
 
-bool
-BreakPoints::insert(unsigned int addr) {
-  bool retval;
-  uint64_t data_bp;
-  struct bp_insn bp;
-
-  bp.addr = addr;
-  retval = m_mem->access(0, addr, 8, (uint64_t *)&bp.insn_orig);
-  bp.is_compressed = INSN_IS_COMPRESSED(bp.insn_orig);
-
-  m_bp_list.push_back(bp);
-
-  if (bp.is_compressed) {
-    data_bp = INSN_BP_COMPRESSED;
-    retval = retval && m_mem->access(1, addr, 2, (uint64_t *)&data_bp);
-  } else {
-    data_bp = INSN_BP;
-    retval = retval && m_mem->access(1, addr, 4, (uint64_t *)&data_bp);
-  }
-
-  return retval && m_cache->flush();
+void
+BreakPoints::sync(int idx)
+{
+  cpu_ctrl(BP_CTRL0+idx*8, m_bp[idx].enabled, 0);
+  cpu_ctrl(BP_DATA0+idx*8, m_bp[idx].addr, 0);  
 }
 
 bool
-BreakPoints::remove(unsigned int addr) {
+BreakPoints::insert(uint64_t addr) {
 
-  bool retval;
-  bool is_compressed;
-  uint32_t data;
-  for (std::list<struct bp_insn>::iterator it = m_bp_list.begin(); it != m_bp_list.end(); it++) {
-    if (it->addr == addr) {
-      data = it->insn_orig;
-      is_compressed = it->is_compressed;
+  for (int i = 0; i < 8; i++)
+    {
+      if (!m_bp[i].present)
+        {
+          m_bp[i].addr = addr;
+          m_bp[i].present = true;
+          m_bp[i].enabled = true;
+          this->sync(i);
+        }
+    }
+  return m_cache->flush();
+}
 
-      m_bp_list.erase(it);
+bool
+BreakPoints::remove(uint64_t addr) {
 
-      if (is_compressed)
-        retval = m_mem->access(1, addr, 2, (uint64_t *)&data);
-      else
-        retval = m_mem->access(1, addr, 4, (uint64_t *)&data);
-
-      return retval && m_cache->flush();
+  for (int i = 0; i < 8; i++)
+    {
+    if (m_bp[i].addr == addr) {
+      m_bp[i].addr = 0;
+      m_bp[i].present = false;
+      m_bp[i].enabled = false;
+      this->sync(i);
+      return m_cache->flush();
     }
   }
 
@@ -67,64 +55,62 @@ BreakPoints::clear() {
 
   bool retval = this->disable_all();
 
-  m_bp_list.clear();
+  for (int i = 0; i < 8; i++)
+    {
+      m_bp[i].addr = 0;
+      m_bp[i].present = false;
+      m_bp[i].enabled = false;
+    }      
 
   return retval;
 }
 
 
 bool
-BreakPoints::at_addr(unsigned int addr) {
-  for (std::list<struct bp_insn>::iterator it = m_bp_list.begin(); it != m_bp_list.end(); it++) {
-    if (it->addr == addr) {
+BreakPoints::at_addr(uint64_t addr) {
+  for (int i = 0; i < 8; i++)
+    {
+    if (m_bp[i].addr == addr)
       // we found our bp
       return true;
     }
-  }
 
   return false;
 }
 
 bool
-BreakPoints::enable(unsigned int addr) {
+BreakPoints::enable(uint64_t addr) {
   bool retval;
   uint32_t data;
 
-  for (std::list<struct bp_insn>::iterator it = m_bp_list.begin(); it != m_bp_list.end(); it++) {
-    if (it->addr == addr) {
-      if (it->is_compressed) {
-        data = INSN_BP_COMPRESSED;
-        retval = m_mem->access(1, addr, 2, (uint64_t *)&data);
-      } else {
-        data = INSN_BP;
-        retval = m_mem->access(1, addr, 4, (uint64_t *)&data);
-      }
-
-      return retval && m_cache->flush();
+  for (int i = 0; i < 8; i++) if ( m_bp[i].present )
+    {
+    if (m_bp[i].addr == addr) {
+      m_bp[i].enabled = true;
+      this->sync(i);
+      return m_cache->flush();
     }
   }
 
-  fprintf(stderr, "bp_enable: Did not find any bp at addr %08X\n", addr);
+  fprintf(stderr, "bp_enable: Did not find any bp at addr %.016lX\n", addr);
 
   return false;
 }
 
 bool
-BreakPoints::disable(unsigned int addr) {
+BreakPoints::disable(uint64_t addr) {
   bool retval;
 
-  for (std::list<struct bp_insn>::iterator it = m_bp_list.begin(); it != m_bp_list.end(); it++) {
-    if (it->addr == addr) {
-      if (it->is_compressed)
-        retval = m_mem->access(1, addr, 2, (uint64_t *)&it->insn_orig);
-      else
-        retval = m_mem->access(1, addr, 4, (uint64_t *)&it->insn_orig);
-
-      return retval && m_cache->flush();
+  for (int i = 0; i < 8; i++) if ( m_bp[i].present )
+    {
+    if (m_bp[i].addr == addr) {
+      m_bp[i].enabled = false;
+      this->sync(i);
+      return m_cache->flush();
     }
   }
 
-  fprintf(stderr, "bp_enable: Did not find any bp at addr %08X\n", addr);
+  fprintf(stderr, "bp_enable: Did not find any bp at addr %.016lX\n", addr);
 
   return false;
 }
@@ -133,9 +119,12 @@ bool
 BreakPoints::enable_all() {
   bool retval = true;
 
-  for (std::list<struct bp_insn>::iterator it = m_bp_list.begin(); it != m_bp_list.end(); it++) {
-    retval = retval && this->enable(it->addr);
-  }
+  for (int i = 0; i < 8; i++) if ( m_bp[i].present )
+    {
+      m_bp[i].enabled = true;
+      this->sync(i);
+      return m_cache->flush();
+    }
 
   return retval;
 }
@@ -144,9 +133,12 @@ bool
 BreakPoints::disable_all() {
   bool retval = true;
 
-  for (std::list<struct bp_insn>::iterator it = m_bp_list.begin(); it != m_bp_list.end(); it++) {
-    retval = retval && this->disable(it->addr);
-  }
+  for (int i = 0; i < 8; i++) if ( m_bp[i].present )
+    {
+      m_bp[i].enabled = false;
+      this->sync(i);
+      return m_cache->flush();
+    }
 
   return retval;
 }
