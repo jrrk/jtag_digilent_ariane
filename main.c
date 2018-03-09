@@ -370,76 +370,77 @@ void my_mem_test(int shft, long addr)
 
 const char *dbgnam(int reg)
 {
+  static char unknown[20];
   switch(reg)
     {
-      case DBG_CTRL    : return "DBG_CTRL    ";
-      case DBG_HIT     : return "DBG_HIT     ";
-      case DBG_IE      : return "DBG_IE      ";
-      case DBG_CAUSE   : return "DBG_CAUSE   ";
+      case DBG_CTRL    : return "DBG_CTRL";
+      case DBG_HIT     : return "DBG_HIT";
+      case DBG_IE      : return "DBG_IE ";
+      case DBG_CAUSE   : return "DBG_CAUSE";
 
-      case BP_CTRL0    : return "BP_CTRL0    ";
-      case BP_DATA0    : return "BP_DATA0    ";
-      case BP_CTRL1    : return "BP_CTRL1    ";
-      case BP_DATA1    : return "BP_DATA1    ";
-      case BP_CTRL2    : return "BP_CTRL2    ";
-      case BP_DATA2    : return "BP_DATA2    ";
-      case BP_CTRL3    : return "BP_CTRL3    ";
-      case BP_DATA3    : return "BP_DATA3    ";
-      case BP_CTRL4    : return "BP_CTRL4    ";
-      case BP_DATA4    : return "BP_DATA4    ";
-      case BP_CTRL5    : return "BP_CTRL5    ";
-      case BP_DATA5    : return "BP_DATA5    ";
-      case BP_CTRL6    : return "BP_CTRL6    ";
-      case BP_DATA6    : return "BP_DATA6    ";
-      case BP_CTRL7    : return "BP_CTRL7    ";
-      case BP_DATA7    : return "BP_DATA7    ";
+      case BP_CTRL0    : return "BP_CTRL0";
+      case BP_DATA0    : return "BP_DATA0";
+      case BP_CTRL1    : return "BP_CTRL1";
+      case BP_DATA1    : return "BP_DATA1";
+      case BP_CTRL2    : return "BP_CTRL2";
+      case BP_DATA2    : return "BP_DATA2";
+      case BP_CTRL3    : return "BP_CTRL3";
+      case BP_DATA3    : return "BP_DATA3";
+      case BP_CTRL4    : return "BP_CTRL4";
+      case BP_DATA4    : return "BP_DATA4";
+      case BP_CTRL5    : return "BP_CTRL5";
+      case BP_DATA5    : return "BP_DATA5";
+      case BP_CTRL6    : return "BP_CTRL6";
+      case BP_DATA6    : return "BP_DATA6";
+      case BP_CTRL7    : return "BP_CTRL7";
+      case BP_DATA7    : return "BP_DATA7";
 
-      case DBG_NPC     : return "DBG_NPC     ";
-      case DBG_PPC     : return "DBG_PPC     ";
-      case DBG_GPR     : return "DBG_GPR     ";
-      case DBG_RA      : return "DBG_RA      ";
-      case DBG_SP      : return "DBG_SP      ";
-      case DBG_GP      : return "DBG_GP      ";
-      case DBG_TP      : return "DBG_TP      ";
-      case DBG_T0      : return "DBG_T0      ";
-      case DBG_T1      : return "DBG_T1      ";
-      case DBG_T2      : return "DBG_T2      ";
-      case DBG_S0      : return "DBG_S0      ";
-      case DBG_S1      : return "DBG_S1      ";
-      case DBG_A0      : return "DBG_A0      ";
-      case DBG_A1      : return "DBG_A1      ";
-      case DBG_A2      : return "DBG_A2      ";
-      case DBG_A3      : return "DBG_A3      ";
-      case DBG_A4      : return "DBG_A4      ";
-      case DBG_A5      : return "DBG_A5      ";
-      case DBG_A6      : return "DBG_A6      ";
-      case DBG_A7      : return "DBG_A7      ";
-      case DBG_S2      : return "DBG_S2      ";
-      case DBG_S3      : return "DBG_S3      ";
-      case DBG_S4      : return "DBG_S4      ";
-      case DBG_S5      : return "DBG_S5      ";
-      case DBG_S6      : return "DBG_S6      ";
-      case DBG_S7      : return "DBG_S7      ";
-      case DBG_S8      : return "DBG_S8      ";
-      case DBG_S9      : return "DBG_S9      ";
-      case DBG_S10     : return "DBG_S10     ";
-      case DBG_S11     : return "DBG_S11     ";
-      case DBG_T3      : return "DBG_T3      ";
-      case DBG_T4      : return "DBG_T4      ";
-      case DBG_T5      : return "DBG_T5      ";
-      case DBG_T6      : return "DBG_T6      ";
+      case DBG_NPC     : return "DBG_NPC";
+      case DBG_PPC     : return "DBG_PPC";
+      case DBG_GPR     : return "DBG_GPR";
+      case DBG_RA      : return "DBG_RA";
+      case DBG_SP      : return "DBG_SP";
+      case DBG_GP      : return "DBG_GP";
+      case DBG_TP      : return "DBG_TP";
+      case DBG_T0      : return "DBG_T0";
+      case DBG_T1      : return "DBG_T1";
+      case DBG_T2      : return "DBG_T2";
+      case DBG_S0      : return "DBG_S0";
+      case DBG_S1      : return "DBG_S1";
+      case DBG_A0      : return "DBG_A0";
+      case DBG_A1      : return "DBG_A1";
+      case DBG_A2      : return "DBG_A2";
+      case DBG_A3      : return "DBG_A3";
+      case DBG_A4      : return "DBG_A4";
+      case DBG_A5      : return "DBG_A5";
+      case DBG_A6      : return "DBG_A6";
+      case DBG_A7      : return "DBG_A7";
+      case DBG_S2      : return "DBG_S2";
+      case DBG_S3      : return "DBG_S3";
+      case DBG_S4      : return "DBG_S4";
+      case DBG_S5      : return "DBG_S5";
+      case DBG_S6      : return "DBG_S6";
+      case DBG_S7      : return "DBG_S7";
+      case DBG_S8      : return "DBG_S8";
+      case DBG_S9      : return "DBG_S9";
+      case DBG_S10     : return "DBG_S10";
+      case DBG_S11     : return "DBG_S11";
+      case DBG_T3      : return "DBG_T3";
+      case DBG_T4      : return "DBG_T4";
+      case DBG_T5      : return "DBG_T5";
+      case DBG_T6      : return "DBG_T6";
 
         // CSRs 4000-0xBFFF
 
-      case DBG_CSR_U0  : return "DBG_CSR_U0  ";
-      case DBG_CSR_U1  : return "DBG_CSR_U1  ";
-      case DBG_CSR_S0  : return "DBG_CSR_S0  ";
-      case DBG_CSR_S1  : return "DBG_CSR_S1  ";
-      case DBG_CSR_H0  : return "DBG_CSR_H0  ";
-      case DBG_CSR_H1  : return "DBG_CSR_H1  ";
-      case DBG_CSR_M0  : return "DBG_CSR_M0  ";
-      case DBG_CSR_M1  : return "DBG_CSR_M1  ";
-      default: return "???";
+      case DBG_CSR_U0  : return "DBG_CSR_U0";
+      case DBG_CSR_U1  : return "DBG_CSR_U1";
+      case DBG_CSR_S0  : return "DBG_CSR_S0";
+      case DBG_CSR_S1  : return "DBG_CSR_S1";
+      case DBG_CSR_H0  : return "DBG_CSR_H0";
+      case DBG_CSR_H1  : return "DBG_CSR_H1";
+      case DBG_CSR_M0  : return "DBG_CSR_M0";
+      case DBG_CSR_M1  : return "DBG_CSR_M1";
+      default: sprintf(unknown, "0x%.04X", reg); return unknown;
        }
 }
 
@@ -622,7 +623,7 @@ void axi_counters(void)
 void axi_status(void)
 {
   uint64_t status = jtag_peek(status_addr);
-  axi_counters();
+  if (verbose) axi_counters();
   switch( (status>>32)&7)
     {
     case axi_state_reset: printf("State: reset\n"); break;
@@ -852,7 +853,7 @@ void axi_test(long addr, int rnw, int siz, int len, int bufadr)
   burst.axi_addr = addr;
   axi_poke(&burst);
   usleep(sleep_dly);
-  if (verbose); axi_counters();
+  if (verbose) axi_counters();
   if (verbose) printf("Go...\n");
   burst.go = 1;
   axi_poke(&burst);
@@ -872,8 +873,7 @@ void axi_test(long addr, int rnw, int siz, int len, int bufadr)
 #define HID_LED 0x400F
 #define HID_DIP 0x401F
 
-enum {burst=128};
-enum {scroll_start=0, base=0x40000000};
+enum {scroll_start=0, base=0x40000000, ddr=0x80000000};
 volatile uint32_t *const sd_base = (uint32_t *)(base+0x01010000);
 volatile uint32_t *const hid_vga_ptr = (uint32_t *)(base+0x01008000);
 const size_t eth = (base+0x01020000), hid = (base+0x01000000);
@@ -882,10 +882,11 @@ static long vga_addr = (long)(base+0x01008000);
 
 void axi_vga(const char *str)
 {
-     enum {line=64*4};
-     uint64_t *chk1, *chk2;
-     uint8_t *frambuf = calloc(line, sizeof(uint64_t));
-     for (int l = 0; l < 4; l++)
+  enum {burst=128};
+  enum {line=64*4};
+  uint64_t *chk1, *chk2;
+  uint8_t *frambuf = calloc(line, sizeof(uint64_t));
+  for (int l = 0; l < 4; l++)
        {
 #if 0         
          for (int i = 0; i < line*sizeof(uint64_t); i+=sizeof(uint64_t))
@@ -934,6 +935,37 @@ void axi_vga(const char *str)
        }
    }
 
+void axi_ramtest(uint64_t axi_addr, int siz)
+{
+     enum {line=128};
+     enum {words=line/sizeof(uint64_t)};
+     uint64_t *chk1, *chk2, pass = 0;
+     char *frambuf = malloc(line);
+     for (int l = 0; l < siz/line; l++)
+       {
+         int len = sprintf(frambuf, ":%.4d:", l);
+         strncpy(frambuf+line-len, frambuf, len);
+         for (int i = len; i < line-len; i++)
+           frambuf[i] = (i+l)%0x5F + ' ';
+         write_data(shared_addr, words, (uint64_t *)frambuf);
+         axi_test(axi_addr+(l<<7), 0, 8, words, 0);
+         
+         axi_test(axi_addr+(l<<7), 1, 8, words, 1<<10);
+         chk1 = read_data(shared_addr+(1<<10), words);
+         chk2 = (uint64_t *)frambuf;
+         for (int i = 0; i < words; i++)
+           {
+             if (chk1[i] != chk2[i])
+               {
+                 printf("Readback mismatch at offset %d (%.016lX != %.016lX)\n", i, chk1[i], chk2[i]);
+               }
+             else
+               ++pass;
+           }
+       }
+     printf("axi_ramtest at address %.016lX, passes = %ld\n", axi_addr, pass);
+}
+
 void axi_dipsw(void)
 {
   axi_test(hid + HID_DIP*4, 1, 4, 1, -8);
@@ -942,56 +974,12 @@ void axi_dipsw(void)
   axi_test(hid + HID_LED*4, 0, 4, 1, -8);
 }
 
-void bist(char *contents)
-{
-  uint64_t *chk1, *chk2, *rand = calloc(burst, sizeof(uint64_t));
-  char *vidtest = (char *)malloc(burst*16);
-  for (int i = 0; i < burst*16; i++) vidtest[i] = mrand48();
-  if (*contents)
-    {
-      FILE *fd = fopen(contents,"r");
-      if (fd)
-        {
-          fread(vidtest, burst, 16, fd);
-          fclose(fd);
-        }
-    }
-  for (int l = 0; l < 4; l++)
-    {
-      int matches = 0;
-      char msg1[burst+1];
-      char msg2[burst+1];
-      char msg3[burst+1];
-      for (int j = 0; j < burst; j++) rand[j] = rand64()<<8;
-      usleep(sleep_dly);
-      write_data(shared_addr+burst*8, burst, rand);
-      axi_test(vga_addr+(l<<10), 0, 8, burst, burst*8);
-      axi_test(vga_addr+(l<<10), 1, 8, burst, burst*16);
-      chk1 = read_data(shared_addr+burst*16, burst);
-      chk2 = read_data(shared_addr, 1 << 11);
-      for (int j = 0; j < burst; j++) msg1[j] = chk1[j]&0x7f;
-      for (int j = 0; j < burst; j++) msg2[j] = chk2[j+burst*2]&0x7f;
-      msg1[burst] = 0; msg2[burst] = 0; msg3[burst] = 0;
-      for (int j = 0; j < (1 << 11) - burst; j++)
-        {
-          for (int k = 0; k < burst; k++) msg3[k] = chk2[j+k]&0x7f;
-          if ((msg3[0] == msg1[0]) && (msg3[1] == msg1[1]))
-            {
-              ++matches;
-              for (l = 0; l < 3; l++)
-                printf("Memory match(off=%d+%d): %.2X,%.2X,%.2X\n", j, l, msg1[l], msg2[l], msg3[l]);
-            }
-        }
-      printf("Matches = %d\n", matches);
-    }
-  free(rand);
-}
-
 int main(int argc, const char **argv)
 {
   int memtest = 0;
   int bridge = 0;
   int vidtest = 0;
+  int axitest = 0;
   srand48(time(0));
   while (argc >= 2 && (argv[1][0]=='-'))
     {
@@ -1008,6 +996,9 @@ int main(int argc, const char **argv)
         break;
       case 'v':
         verbose = 1 + atoi(2+argv[1]);
+        break;
+      case 'x':
+        axitest = 1;
         break;
       case 'z':
         vidtest = 1;
@@ -1037,6 +1028,7 @@ int main(int argc, const char **argv)
       cpu_debug();
       if (memtest)
         {
+          enum {burst=128};
           uint64_t *chk1, *chk2, *pattern1 = calloc(burst, sizeof(uint64_t));;
           for (int j = 0; j < burst; j++) pattern1[j] = 1ULL << j&63;
           tstcnt = 0;
@@ -1067,6 +1059,12 @@ int main(int argc, const char **argv)
                   printf("Readback mismatch at offset %d (%.016lX != %.016lX)\n", i, chk1[i], chk2[i]);
                 }
             }
+        }
+      if (axitest)
+        {
+          axi_ramtest(vga_addr, 1 << 12);
+          //          axi_ramtest(base, 1 << 12);
+          axi_ramtest(ddr, 1 << 7);
         }
       if (vidtest)
         {

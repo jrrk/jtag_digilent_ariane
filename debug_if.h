@@ -27,6 +27,8 @@ class DbgIF {
   public:
     DbgIF(MemIF* mem, unsigned int base_addr, LogIF *log);
 
+    bool pc_read(uint64_t* pc);
+    void pc_write(uint64_t wdata);
     void flush();
 
     bool halt();
@@ -50,9 +52,11 @@ class DbgIF {
     void get_name(char* str, size_t len);
 
   private:
+    void pc_override(bool);
     unsigned int m_base_addr;
 
     uint64_t m_thread_id;
+    bool m_pc_override;
 
     MemIF* m_mem;
     LogIF *log;

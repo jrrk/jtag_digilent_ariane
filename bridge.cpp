@@ -61,7 +61,7 @@ void Bridge::initBridge(Platforms platform, int portNumber, MemIF *memIF, LogIF 
       return;
   }
 
-  bp = new BreakPoints(mem, cache);
+  bp = new BreakPoints(dbgifs, cache);
 
   rsp = new Rsp(1234, mem, this->log, dbgifs, bp);
 }

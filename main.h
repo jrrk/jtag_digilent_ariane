@@ -182,6 +182,7 @@ typedef enum {
   void new_bridge(int portNumber);
   int cpu_is_stopped(void);
   const char *regnum(int num);
+  const char *dbgnam(int reg);
 
 #ifdef __cplusplus
 };

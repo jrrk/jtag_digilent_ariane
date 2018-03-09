@@ -50,13 +50,15 @@ class Rsp {
     bool send_str(const char* data);
   private:
     // internal helper functions
-    bool pc_read(uint64_t* pc);
-
     bool waitStop(DbgIF* dbgif);
-    bool resume(bool step);
-    bool resume(int tid, bool step);
-    void resumeAll(bool step);
-    void resumeCore(DbgIF* dbgif, bool step);
+    bool resume();
+    bool stepCores();
+    bool resume(int tid);
+    bool step(int tid);
+    void resumeAll();
+    void stepAll();
+    void resumeCore(DbgIF* dbgif);
+    void stepCore(DbgIF* dbgif);
     void resumeCoresPrepare(DbgIF *dbgif, bool step);
     void resumeCores();
 
