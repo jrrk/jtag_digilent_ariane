@@ -598,78 +598,24 @@ void cpu_debug(void)
 }
 
 typedef struct {  
-  uint64_t cap_rst; uint64_t wrap_rst; uint64_t reset;
-  uint64_t go; uint64_t inc; uint64_t rnw; uint64_t size; uint64_t length; uint64_t axi_addr;
+  uint64_t dma_addr; uint64_t dma_be; uint64_t dma_we;
+  uint64_t dma_req; uint64_t dma_capture;
   } axi_rec_t;
 
-void axi_poke(axi_rec_t *burst)
+void dma_poke(axi_rec_t *burst)
 {
-  uint64_t mask = ((burst->cap_rst&1)<<52)|
-    ((burst->wrap_rst&1)<<51)|((burst->reset&1)<<50)|
-    ((burst->go&1)<<49)|((burst->inc&1)<<48)|((burst->rnw&1)<<47)|
-    ((burst->size&0x7F)<<40)|((burst->length&0xFF)<<32)|(burst->axi_addr&0xFFFFFFFF);
-  verify_poke(burst_addr, mask, 0);  
+  uint64_t mask = (burst->dma_capture ? dma_capture : 0)|
+    (burst->dma_req ? dma_req : 0) |
+    (burst->dma_we ? dma_we : 0)|
+    ((burst->dma_be&0xF)<<32)|
+    (burst->dma_addr&0xFFFFFFFF);
+  verify_poke(dma_ctrl_addr, mask, 0);  
 }
 
 void axi_counters(void)
 {
-  uint64_t status = jtag_peek(status_addr);
-  uint32_t wrapaddr = status&0xFFFFFFFF;
-  printf("Wrap address: %.08X\n", wrapaddr);
   uint64_t capa = jtag_peek(cap_addr);
   printf("Capture address: %.16lX\n", capa);
-}
-
-void axi_status(void)
-{
-  uint64_t status = jtag_peek(status_addr);
-  if (verbose) axi_counters();
-  switch( (status>>32)&7)
-    {
-    case axi_state_reset: printf("State: reset\n"); break;
-    case axi_state_idle: printf("State: idle\n"); break;
-    case axi_state_prepare: printf("State: prepare\n"); break;
-    case axi_state_read_transaction: printf("State: read_transaction\n"); break;
-    case axi_state_write_transaction: printf("State: write_transaction\n"); break;
-    case axi_state_error_detected: printf("State: error_detected\n"); break;
-    case axi_state_complete: printf("State: complete\n"); break;
-    case axi_state_unknown:  printf("State: unknown\n"); break;
-    }
-  printf("Done: %lX\n", (status>>35)&1);
-  printf("Busy: %lX\n", (status>>36)&1);
-  printf("Error: %lX\n", (status>>37)&1);
-  printf("Resetn: %lX\n", (status>>38)&1);
-  printf("start_write_response_transaction: %lX\n", (status>>39)&1);
-  printf("start_write_data_transaction: %lX\n", (status>>40)&1);
-  printf("start_write_address_transaction: %lX\n", (status>>41)&1);
-  printf("start_read_data_transaction: %lX\n", (status>>42)&1);
-  printf("start_read_address_transaction: %lX\n", (status>>43)&1);
-  printf("write_response_transaction_finished: %lX\n", (status>>44)&1);
-  printf("write_data_transaction_finished: %lX\n", (status>>45)&1);
-  printf("read_data_transaction_finished: %lX\n", (status>>46)&1);
-  printf("write_address_transaction_finished: %lX\n", (status>>47)&1);
-  printf("read_address_transaction_finished: %lX\n", (status>>48)&1);
-  switch( (status>>49)&7)
-    {
-    case 000: printf("Read address channel state: reset\n"); break;
-    case 001: printf("Read address channel state: idle\n"); break;
-    case 002: printf("Read address channel state: running\n"); break;
-    case 003: printf("Read address channel state: error_detected\n"); break;
-    case 004: printf("Read address channel state: complete\n"); break;
-    default:  printf("Read address channel state: unknown\n"); break;
-    }
-  switch( (status>>52)&7)
-    {
-    case 000: printf("Write response channel state: reset\n"); break;
-    case 001: printf("Write response channel state: idle\n"); break;
-    case 002: printf("Write response channel state: running\n"); break;
-    case 003: printf("Write response channel state: success\n"); break;
-    case 004: printf("Write response channel state: error_detected\n"); break;
-    case 005: printf("Write response channel state: complete\n"); break;
-    default:  printf("Write response channel state: unknown\n"); break;
-    }
-  printf("Protocol checker assert: %lX\n", (status>>55)&1);
-  printf("Capture busy: %lX\n", (status>>56)&1);
 }
 
 void axi_proto_status(void)
@@ -804,69 +750,37 @@ void axi_capture_status(void)
   close_vcd();
 }
 
-int axi_check_status(void)
+void dma_test(long addr, int rnw, int siz, int len, int bufadr)
 {
-  return (jtag_peek(status_addr)>>32)&7;
-}
-
-int axi_check_complete(axi_state_t target_state)
-{
-  int waiting, waitcnt = 0;
-  axi_state_t current_state;
-  do {
-    current_state = axi_check_status();
-    waiting = current_state != target_state;
-    if (waiting)
-      usleep(sleep_dly);
-  }
-  while (waiting && ++waitcnt < 100);
-  if (waiting)
-    {
-      printf("AXI timeout, resetting\n");
-      return 0;
-    }
-  return 1;
-}
-
-void axi_test(long addr, int rnw, int siz, int len, int bufadr)
-{
+  uint32_t rslt;
   axi_rec_t burst;
-  if (verbose) printf("Reset...\n");
-  burst.reset =  0; // axi_check_complete(axi_state_idle);
-  burst.cap_rst = 1;
-  burst.wrap_rst = 1;
-  burst.go = 0;
-  burst.inc = 1;
-  burst.rnw = rnw;
-  burst.size = siz;
-  burst.length = len;
-  burst.axi_addr = bufadr;
-  axi_poke(&burst);
-  usleep(sleep_dly);
-  if (verbose) printf("Make idle...\n");
-  burst.reset = 1;
-  axi_poke(&burst);
-  usleep(sleep_dly);
-  if (verbose) printf("Enable capture and wrap counters...\n");
-  burst.cap_rst = 0;
-  burst.wrap_rst = 0;
-  burst.axi_addr = addr;
-  axi_poke(&burst);
-  usleep(sleep_dly);
-  if (verbose) axi_counters();
-  if (verbose) printf("Go...\n");
-  burst.go = 1;
-  axi_poke(&burst);
-  axi_check_complete(axi_state_complete);
-  if (verbose)
+  burst.dma_be = 0xF;
+  burst.dma_req = 1;
+  burst.dma_capture = 0;
+  for (int i = 0; i < 32; i += 4)
     {
-      axi_status();
-      axi_proto_status();
+      verify_poke(dma_data_addr, -1, 0);
+      burst.dma_addr = i;
+      burst.dma_we = 0;
+      dma_poke(&burst);
+      usleep(sleep_dly);
+      burst.dma_we = 1;
+      dma_poke(&burst);
+      usleep(sleep_dly);
+      burst.dma_we = 0;
+      dma_poke(&burst);
+      usleep(sleep_dly);
+      rslt = jtag_peek(dma_data_addr);
+      printf("dma[%2d] = %.08X\n", i, rslt);
     }
-  if (capture)
-      axi_capture_status();
-  burst.go = 0;
-  axi_poke(&burst);
+  if (verbose) printf("Make idle...\n");
+  dma_poke(&burst);
+  usleep(sleep_dly);
+  dma_poke(&burst);
+  usleep(sleep_dly);
+  if (verbose) printf("Go...\n");
+  dma_poke(&burst);
+  dma_poke(&burst);
 }
 
 #define HID_VGA 0x2000
@@ -920,9 +834,9 @@ void axi_vga(const char *str)
            }
 #endif         
          write_data(shared_addr, line, (uint64_t *)frambuf);
-         axi_test(vga_addr+(l<<10), 0, 8, 128, 0);
+         dma_test(vga_addr+(l<<10), 0, 8, 128, 0);
          
-         axi_test(vga_addr+(l<<10), 1, 8, burst, 1<<10);
+         dma_test(vga_addr+(l<<10), 1, 8, burst, 1<<10);
          chk1 = read_data(shared_addr+(1<<10), line);
          chk2 = (uint64_t *)frambuf;
           for (int i = 0; i < burst; i++)
@@ -948,9 +862,9 @@ void axi_ramtest(uint64_t axi_addr, int siz)
          for (int i = len; i < line-len; i++)
            frambuf[i] = (i+l)%0x5F + ' ';
          write_data(shared_addr, words, (uint64_t *)frambuf);
-         axi_test(axi_addr+(l<<7), 0, 8, words, 0);
+         dma_test(axi_addr+(l<<7), 0, 8, words, 0);
          
-         axi_test(axi_addr+(l<<7), 1, 8, words, 1<<10);
+         dma_test(axi_addr+(l<<7), 1, 8, words, 1<<10);
          chk1 = read_data(shared_addr+(1<<10), words);
          chk2 = (uint64_t *)frambuf;
          for (int i = 0; i < words; i++)
@@ -968,10 +882,10 @@ void axi_ramtest(uint64_t axi_addr, int siz)
 
 void axi_dipsw(void)
 {
-  axi_test(hid + HID_DIP*4, 1, 4, 1, -8);
+  dma_test(hid + HID_DIP*4, 1, 4, 1, -8);
   uint64_t dip = *read_data(shared_addr, 1);
   printf("DIP SW: %.4lX\n", dip);
-  axi_test(hid + HID_LED*4, 0, 4, 1, -8);
+  dma_test(hid + HID_LED*4, 0, 4, 1, -8);
 }
 
 int main(int argc, const char **argv)
@@ -1038,7 +952,7 @@ int main(int argc, const char **argv)
           my_mem_test(14, boot_addr);
           printf("Boot addr tests passed = %d\n", tstcnt);
           
-          axi_test(base, 1, 8, burst, 0);
+          dma_test(base, 1, 8, burst, 0);
           chk1 = read_data(shared_addr, burst);
           chk2 = read_data(boot_addr, burst);
           for (int i = 0; i < burst; i++)
@@ -1049,7 +963,7 @@ int main(int argc, const char **argv)
                 }
             }
           my_mem_test(12, shared_addr);
-          axi_test(base, 0, 8, burst, 0);
+          dma_test(base, 0, 8, burst, 0);
           chk1 = read_data(shared_addr, burst);
           chk2 = read_data(boot_addr, burst);
           for (int i = 0; i < burst; i++)
