@@ -30,8 +30,9 @@ DbgIF::pc_override(bool status) {
 void
 DbgIF::pc_write(uint64_t wdata, bool trace_rst) {
   cpu_mode_t rst = trace_rst ? capture_rst : cpu_void;
-  verify_cpu_ctrl(DBG_NPC_REG, wdata, 1, rst);
-  verify_cpu_ctrl(DBG_PPC_REG, wdata, 1, rst);
+  capture_flags(rst);
+  cpu_ctrl(DBG_NPC_REG, wdata, 1);
+  cpu_ctrl(DBG_PPC_REG, wdata, 1);
   pc_override(true);
 }
 
@@ -107,12 +108,13 @@ DbgIF::step_and_stop(bool capture, uint64_t wdata) {
     {
       axi_counters();
       if (0)
-        verify_cpu_ctrl(DBG_CTRL_REG, 0x1, 1, (cpu_mode_t)(capture_rst|cpu_capture));
+        capture_flags((cpu_mode_t)(capture_rst|cpu_capture));
       else
-        verify_cpu_ctrl(DBG_CTRL_REG, 0x1, 1, cpu_capture);
+        capture_flags(cpu_capture);
     }
   else
-      verify_cpu_ctrl(DBG_CTRL_REG, 0x1, 1, cpu_void);    
+    capture_flags(cpu_void);
+  cpu_ctrl(DBG_CTRL_REG, 0x1, 1);    
   return true;
 }
 
@@ -120,11 +122,13 @@ bool
 DbgIF::ctrl_and_go() {
   printf("ctrl_and_go()\n");
   // clear hit register, has to be done before CTRL
-  verify_cpu_ctrl(DBG_HIT_REG, 0x0, 1, cpu_void);
+  capture_flags(cpu_void);
+  cpu_ctrl(DBG_HIT_REG, 0x0, 1);
   if (0)
-    verify_cpu_ctrl(DBG_CTRL_REG, 0x0, 0, (cpu_mode_t)(capture_rst|cpu_capture));
+    capture_flags((cpu_mode_t)(capture_rst|cpu_capture));
   else
-    verify_cpu_ctrl(DBG_CTRL_REG, 0x0, 0, cpu_capture);
+    capture_flags(cpu_capture);
+  cpu_ctrl(DBG_CTRL_REG, 0x0, 0);
   return true;
 }
 

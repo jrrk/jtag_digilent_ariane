@@ -463,9 +463,13 @@ uint64_t jtag_peek(int addr)
   return retval;
 }
 
+static cpu_mode_t capture_flags_saved;
+
 void verify_poke(uint32_t addr, uint64_t data, uint64_t mask)
 {
   uint64_t rslt;
+  if (addr==debug_addr_hi)
+    data |= capture_flags_saved;
   jtag_poke(addr, data);
   rslt = jtag_peek(addr);
   if (data != (rslt&~mask))
@@ -474,7 +478,12 @@ void verify_poke(uint32_t addr, uint64_t data, uint64_t mask)
     }
 }
 
-uint64_t verify_cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt, cpu_mode_t flags)
+void capture_flags(cpu_mode_t flags)
+{
+  capture_flags_saved = flags;
+}
+
+uint64_t verify_cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt)
 {
   cpu_mode_t ctrl;
   uint64_t rslt, halt = force_halt ? cpu_halt : 0;
@@ -483,7 +492,7 @@ uint64_t verify_cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt, cpu_mo
   // Try to set debug request
   ctrl = cpu_req|halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
-  ctrl = flags|cpu_we|cpu_req|halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
+  ctrl = cpu_we|cpu_req|halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   ctrl = cpu_req|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
@@ -491,7 +500,8 @@ uint64_t verify_cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt, cpu_mo
   ctrl = (cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   if (verbose)
-    printf("cpu_ctrl(0x%.4X,%s): wrote 0x%.16lX, read 0x%.16lX\n", cpu_addr, dbgnam(cpu_addr), cpu_data, rslt);
+    printf("cpu_ctrl(0x%.4X,%s): wrote 0x%.16lX, read 0x%.16lX\n",
+           cpu_addr, dbgnam(cpu_addr), cpu_data, rslt);
   return rslt;
 }
 
@@ -515,7 +525,7 @@ void cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt)
   static int prev_force;
   if (force_halt < 0) prev_force = 0;
   if (force_halt > 0) prev_force = 1;
-  verify_cpu_ctrl(cpu_addr, cpu_data, prev_force, 0);
+  verify_cpu_ctrl(cpu_addr, cpu_data, prev_force);
 #endif  
 }
 
@@ -577,8 +587,9 @@ static uint32_t _ext32(uint64_t *cap_raw, int wid)
       retval = hi >> (shift-32);
     }
   else
-    retval = lo >> shift;    
-  retval &= (mask << wid)-1;
+    retval = lo >> shift;
+  if (wid < 32)
+    retval &= (mask << wid)-1;
   cap_offset += wid;
   return retval;
 }
@@ -658,10 +669,10 @@ commit_t cpu_commit_decode(uint64_t *cap_raw)
     }
   ext2(commit.count, 9);
   ext2(commit.wdata_a_i, 64);
-  ext2(commit.waddr_a_i, 5);
   ext2(commit.rdata_b_o, 64);
-  ext2(commit.raddr_b_i, 5);
   ext2(commit.rdata_a_o, 64);
+  ext2(commit.waddr_a_i, 5);
+  ext2(commit.raddr_b_i, 5);
   ext2(commit.raddr_a_i, 5);
   // register file signals (for debug)
   ext2(commit.priv_lvl, 2);

@@ -170,7 +170,7 @@ typedef enum {
   uint64_t *read_data(jtag_addr_t addr, int len);
   void dma_copy(uint64_t axi_src_addr, uint64_t axi_dst_addr, int mask, int len);
   void cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt);
-  uint64_t verify_cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt, cpu_mode_t flags);
+  void capture_flags(cpu_mode_t flags);
   uint64_t cpu_read(int cpu_addr);
   void cpu_debug(void);
   void cpu_flush(void);
