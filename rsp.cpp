@@ -214,7 +214,7 @@ Rsp::cont(char* data, size_t len) {
     dbgif->pc_read(&npc);
 
     if (npc != addr)
-      dbgif->pc_write(addr);
+      dbgif->pc_write(addr, false);
   }
 
   m_thread_sel = 0;
@@ -245,7 +245,7 @@ Rsp::step(char* data, size_t len) {
     dbgif->pc_read(&npc);
 
     if (npc != addr)
-      dbgif->pc_write(addr);
+      dbgif->pc_write(addr, false);
   }
 
   m_thread_sel = 0;
@@ -496,7 +496,7 @@ Rsp::reg_write(char* data, size_t len) {
   if (addr < RISCV_PC_REGNUM)
     dbgif->gpr_write(addr, wdata);
   else if (addr == RISCV_PC_REGNUM)
-    dbgif->pc_write(wdata);
+    dbgif->pc_write(wdata, true);
   else
     return this->send_str("E01");
 
@@ -744,6 +744,8 @@ Rsp::waitStop(DbgIF* dbgif) {
     //First check if one core has stopped
     if (dbgif) {
       if (dbgif->is_stopped()) {
+        axi_counters();
+        cpu_commit_status();        
         return this->signal();
       }
     } else {
@@ -809,8 +811,7 @@ Rsp::resumeCoresPrepare(DbgIF *dbgif, bool step) {
     log->debug("Core is stopped on a breakpoint, stepping to go over (addr: 0x%lx)\n", ppc);
 
     m_bp->disable(m_thread_sel, ppc);
-    dbgif->pc_write(ppc); // re-execute this instruction
-    dbgif->write_and_stop(DBG_CTRL_REG, 0x1); // single-step
+    dbgif->step_and_stop(false, ppc); // single-step
     while (1) {
       uint64_t value;
       dbgif->read(DBG_CTRL_REG, &value);
@@ -880,8 +881,7 @@ Rsp::resume(int tid) {
   if (m_bp->at_addr(ppc))
     m_bp->disable(m_thread_sel, ppc);
   
-  dbgif->pc_write(ppc); // re-execute this instruction
-  dbgif->write_and_stop(DBG_CTRL_REG, 0x1); // single-step
+  dbgif->step_and_stop(false, ppc); // single-step
 
   dbgif->pc_read(&ppc1);
   if (ppc1 != ppc)
@@ -892,9 +892,7 @@ Rsp::resume(int tid) {
   if (m_bp->at_addr(ppc))
     m_bp->enable(m_thread_sel, ppc);
   
-  // clear hit register, has to be done before CTRL
-  dbgif->write_and_stop(DBG_HIT_REG, 0);
-  dbgif->write_and_go(DBG_CTRL_REG, 0);
+  dbgif->ctrl_and_go();
 
   return waitStop(dbgif);
 }
@@ -918,8 +916,7 @@ Rsp::step(int tid) {
     m_bp->enable(tid, ppc+4);
   else
     m_bp->insert(tid, ppc+4);
-  dbgif->pc_write(ppc); // re-execute this instruction
-  dbgif->write_and_stop(DBG_CTRL_REG, 0x1); // single-step
+  dbgif->step_and_stop(true, ppc); // single-step
   if (!bp)
     m_bp->remove(tid, ppc+4);
   if (m_bp->at_addr(ppc))
@@ -1102,7 +1099,7 @@ Rsp::bp_remove(char* data, size_t len) {
   dbgif->pc_read(&ppc);
 
   if (addr == ppc) {
-    dbgif->pc_write(ppc); // re-execute this instruction
+    dbgif->pc_write(ppc, false); // re-execute this instruction
   }
 
   return this->send_str("OK");

@@ -4,6 +4,7 @@
 #include "mem.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 DbgIF::DbgIF(MemIF* mem, unsigned int base_addr, LogIF *log) {
   this->m_mem = mem;
@@ -27,9 +28,10 @@ DbgIF::pc_override(bool status) {
 }
 
 void
-DbgIF::pc_write(uint64_t wdata) {
-  write_and_stop(DBG_NPC_REG, wdata);
-  write_and_stop(DBG_PPC_REG, wdata);
+DbgIF::pc_write(uint64_t wdata, bool trace_rst) {
+  cpu_mode_t rst = trace_rst ? capture_rst : cpu_void;
+  verify_cpu_ctrl(DBG_NPC_REG, wdata, 1, rst);
+  verify_cpu_ctrl(DBG_PPC_REG, wdata, 1, rst);
   pc_override(true);
 }
 
@@ -71,7 +73,7 @@ DbgIF::flush() {
   // Write back the value of NPC so that it triggers a flush of the prefetch buffer
   uint64_t npc;
   pc_read(&npc);
-  pc_write(npc);
+  pc_write(npc, true);
 }
 
 bool
@@ -84,8 +86,7 @@ DbgIF::write(uint32_t addr, uint64_t wdata) {
 bool
 DbgIF::write_and_stop(uint32_t addr, uint64_t wdata) {
   printf("reg_write_and_stop(%s,%.016lX)\n", dbgnam(addr), wdata);
-  if (addr==DBG_CTRL_REG)
-    pc_override(false);
+  if (addr==DBG_CTRL_REG) abort();
   cpu_ctrl(addr, wdata, 1);
   return true;
 }
@@ -94,6 +95,36 @@ bool
 DbgIF::write_and_go(uint32_t addr, uint64_t wdata) {
   printf("reg_write_and_go(%s,%.016lX)\n", dbgnam(addr), wdata);
   cpu_ctrl(addr, wdata, -1);
+  return true;
+}
+
+bool
+DbgIF::step_and_stop(bool capture, uint64_t wdata) {
+  printf("step_and_stop()\n");
+  pc_write(wdata, false);
+  pc_override(false);
+  if (capture)
+    {
+      axi_counters();
+      if (0)
+        verify_cpu_ctrl(DBG_CTRL_REG, 0x1, 1, (cpu_mode_t)(capture_rst|cpu_capture));
+      else
+        verify_cpu_ctrl(DBG_CTRL_REG, 0x1, 1, cpu_capture);
+    }
+  else
+      verify_cpu_ctrl(DBG_CTRL_REG, 0x1, 1, cpu_void);    
+  return true;
+}
+
+bool
+DbgIF::ctrl_and_go() {
+  printf("ctrl_and_go()\n");
+  // clear hit register, has to be done before CTRL
+  verify_cpu_ctrl(DBG_HIT_REG, 0x0, 1, cpu_void);
+  if (0)
+    verify_cpu_ctrl(DBG_CTRL_REG, 0x0, 0, (cpu_mode_t)(capture_rst|cpu_capture));
+  else
+    verify_cpu_ctrl(DBG_CTRL_REG, 0x0, 0, cpu_capture);
   return true;
 }
 

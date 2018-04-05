@@ -7,31 +7,22 @@ extern "C" {
 
 #include <stdint.h>
 
+enum {scroll_start=0, axi_base=0x40000000, axi_vga_addr = 0x41008000, axi_shared_addr = 0x42000000, axi_ddr=0x80000000};
+
 typedef enum {rd_mode = 0L, wr_mode = 1L << 32, inc_mode = 1L << 33} jtag_mode_t;
 
-typedef enum {cpu_addr_mask = 0xFFFF, cpu_halt = 0x10000, cpu_req = 0x20000, cpu_we = 0x40000,
-              cpu_resume = 0x80000, cpu_nofetch = 0x100000, cpu_capture = 0x200000,
-              cpu_gnt_ro = 0x400000, cpu_halted_ro = 0x800000, cpu_rvalid_ro = 0x1000000} cpu_mode_t;
+typedef enum {cpu_void = 0, cpu_addr_mask = 0xFFFF, cpu_halt = 0x10000, cpu_req = 0x20000, cpu_we = 0x40000,
+              cpu_resume = 0x80000, cpu_nofetch = 0x100000, cpu_capture = 0x200000, capture_rst = 0x400000,
+              cpu_gnt_ro = 0x800000, cpu_halted_ro = 0x1000000, cpu_rvalid_ro = 0x2000000} cpu_mode_t;
 
-typedef enum {dma_addr_mask = 0xFFFFFFFF, dma_be = 0xF00000000ULL, dma_we = 0x1000000000ULL,
-               dma_req = 0x2000000000ULL, dma_capture = 0x4000000000ULL,
-               dma_gnt = 0x8000000000ULL, dma_rvalid = 0x10000000000ULL} dma_mode_t;
+typedef enum {dma_strb_mask = 0xFF, dma_move_en = 0x100, dma_capture = 0x200, dma_capture_sel = 0x400, axi_reset = 0x800,
+              dma_move_done_ro = 0x1000} dma_mode_t;
 
 typedef enum {boot_addr = 0xFF200000, cap_addr = 0x300000,
               proto_addr_lo = 0x400000, proto_addr_hi = 0x500000,
-              dma_data_addr = 0x600000, dma_status_addr = 0x640000, dma_ctrl_addr = 0x680000,
+              dma_src_addr = 0x600000, dma_dest_addr = 0x640000, dma_len_addr = 0x680000, dma_ctl_addr = 0x6C0000,
               burst_addr = 0x700000, shared_addr = 0x800000, cap_buf = 0x900000,
-              debug_addr_lo = 0xFFF00000, debug_addr_hi = 0xFFF80000} jtag_addr_t;
-
-  typedef enum {
-    axi_state_reset = 000,
-    axi_state_idle = 001,
-    axi_state_prepare = 002,
-    axi_state_read_transaction = 003,
-    axi_state_write_transaction = 004,
-    axi_state_error_detected = 005,
-    axi_state_complete = 006,
-    axi_state_unknown = 007} axi_state_t;
+              debug_addr_lo = 0xFFF00000, debug_addr_hi = 0xFFF80000, debug_addr_cap = 0xFFFC0000} jtag_addr_t;
 
 typedef enum {
         DBG_CTRL     = 0x0,
@@ -177,8 +168,9 @@ typedef enum {
   
   void write_data(jtag_addr_t addr, int len, uint64_t *cnvptr);
   uint64_t *read_data(jtag_addr_t addr, int len);
-  void dma_test(long addr, int rnw, int siz, int len, int bufadr);
+  void dma_copy(uint64_t axi_src_addr, uint64_t axi_dst_addr, int mask, int len);
   void cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt);
+  uint64_t verify_cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt, cpu_mode_t flags);
   uint64_t cpu_read(int cpu_addr);
   void cpu_debug(void);
   void cpu_flush(void);
@@ -189,7 +181,8 @@ typedef enum {
   int cpu_is_stopped(void);
   const char *regnum(int num);
   const char *dbgnam(int reg);
-
+  void axi_counters(void);
+  void cpu_commit_status(void);
 #ifdef __cplusplus
 };
 #endif

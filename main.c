@@ -75,7 +75,7 @@ struct target *get_current_target(struct command_context *cmd_ctx)
         return target;
 }
 
-int my_command_init(int verbose)
+int my_command_init(int verbose, const char *interface)
 {
   const char *argv_7[] = {"program", "<filename>", NULL};
   const char *argv_6[] = {"program", "default", NULL};
@@ -86,7 +86,6 @@ int my_command_init(int verbose)
   const char *argv_1[] = {"script", "filename of OpenOCD script (tcl) to run", NULL};
   const char *argv1[] = {"find", "<file>", NULL};
   const char *argv2[] = {"3", NULL};
-  const char *argv3[] = {"ftdi", NULL};
   const char *argv4[] = {"Digilent USB Device", NULL};
   const char *argv5[] = {"0x0403", "0x6010", NULL};
   const char *argv6[] = {"0", NULL};
@@ -94,7 +93,6 @@ int my_command_init(int verbose)
   const char *argv8[] = {"none", NULL};
   const char *argv9[] = {"10000", NULL};
   const char *argv10[] = {NULL};
-  const char *interface = getenv("INTERFACE");
   char const *argvi[] = {interface, NULL};
   log_init();
   jtag_constructor();
@@ -148,9 +146,9 @@ int my_command_init(int verbose)
     }
   my_command.name = "interface";
   my_command.argc = 1;
-  my_command.argv = interface ? argvi : argv3;
+  my_command.argv = argvi;
   handle_interface_command (&my_command);
-  if (interface && !strcmp(interface, "remote_bitbang"))
+  if (!strcmp(interface, "remote_bitbang"))
     {
       my_command.name = "remote_bitbang_host";
       my_command.argc = 1;
@@ -163,7 +161,7 @@ int my_command_init(int verbose)
       argvi[0] = "4242";
       remote_bitbang_handle_remote_bitbang_port_command(&my_command);      
     }
-  else if (interface && !strcmp(interface, "jtag_vpi"))
+  else if (!strcmp(interface, "jtag_vpi"))
     {
       my_command.name = "jtag_vpi_set_address";
       my_command.argc = 1;
@@ -176,7 +174,7 @@ int my_command_init(int verbose)
       argvi[0] = "5555";
       jtag_vpi_set_port(&my_command);      
     }
-  else
+  else if (!strcmp(interface, "ftdi"))
     {
       my_command.name = "ftdi_device_desc";
       my_command.argc = 1;
@@ -194,6 +192,11 @@ int my_command_init(int verbose)
       my_command.argc = 2;
       my_command.argv = argv7; 
       ftdi_handle_layout_init_command(&my_command);
+    }
+  else
+    {
+      fprintf(stderr, "Unknown interface %s\n", interface);
+      exit(1);
     }
   my_command.name = "reset_config";
   my_command.argc = 1;
@@ -467,11 +470,11 @@ void verify_poke(uint32_t addr, uint64_t data, uint64_t mask)
   rslt = jtag_peek(addr);
   if (data != (rslt&~mask))
     {
-      printf("JTAG verify mismatch: %.16lX != %.16lX\n", data, rslt);
+      printf("JTAG verify mismatch @%.08X: %.16lX != %.16lX\n", addr, data, rslt);
     }
 }
 
-uint64_t verify_cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt)
+uint64_t verify_cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt, cpu_mode_t flags)
 {
   cpu_mode_t ctrl;
   uint64_t rslt, halt = force_halt ? cpu_halt : 0;
@@ -480,7 +483,7 @@ uint64_t verify_cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt)
   // Try to set debug request
   ctrl = cpu_req|halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
-  ctrl = cpu_we|cpu_req|halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
+  ctrl = flags|cpu_we|cpu_req|halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   ctrl = cpu_req|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
@@ -512,7 +515,7 @@ void cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt)
   static int prev_force;
   if (force_halt < 0) prev_force = 0;
   if (force_halt > 0) prev_force = 1;
-  verify_cpu_ctrl(cpu_addr, cpu_data, prev_force);
+  verify_cpu_ctrl(cpu_addr, cpu_data, prev_force, 0);
 #endif  
 }
 
@@ -555,6 +558,185 @@ int cpu_is_stopped(void)
     }
 }
 
+axi_t *dbg;
+int cap_offset;
+enum {sleep_dly=100};
+
+#define ext(wid) _ext(cap_raw, wid)
+#define ext2(dst,wid) dst = _ext(cap_raw, wid), vcd_info(#dst, dst, wid)
+
+static uint32_t _ext32(uint64_t *cap_raw, int wid)
+{
+  int shift = cap_offset&63;
+  uint32_t retval, mask = 1;
+  uint64_t lo = cap_raw[cap_offset>>6];
+  uint64_t hi = (cap_raw[(cap_offset>>6)+1] << 32) | (lo >> 32);
+  assert(wid <= 32);
+  if (shift >= 32) // value is split across words (we assume width <= 32)
+    {
+      retval = hi >> (shift-32);
+    }
+  else
+    retval = lo >> shift;    
+  retval &= (mask << wid)-1;
+  cap_offset += wid;
+  return retval;
+}
+
+static uint64_t _ext(uint64_t *cap_raw, int wid)
+{
+  if (wid > 32)
+    {
+      uint64_t rslt1 = _ext32(cap_raw, 32);
+      uint64_t rslt2 = _ext32(cap_raw, wid-32);
+      return rslt1 | (rslt2 << 32); 
+    }
+  else
+    {
+      return _ext32(cap_raw, wid);
+    }
+}
+
+exception_t cpu_exc_decode(uint64_t *cap_raw)
+{
+  exception_t exception;
+  // exceptions
+  ext2(exception.valid, 1);
+  ext2(exception.tval, 64);
+  ext2(exception.cause, 64);
+  return exception;
+}
+
+branchpredict_sbe_t cpu_bp_decode(uint64_t *cap_raw)
+{
+  branchpredict_sbe_t bp;
+  // bps
+  ext2(bp.valid, 1);
+  ext2(bp.is_lower_16, 1);
+  ext2(bp.predict_taken, 1);
+  ext2(bp.predict_address, 64);
+  return bp;
+}
+
+scoreboard_entry_t cpu_scoreboard_decode(uint64_t *cap_raw)
+{
+  scoreboard_entry_t scoreboard_entry;
+  ext2(scoreboard_entry.is_compressed, 1);
+  scope("bp");
+  scoreboard_entry.bp = cpu_bp_decode(cap_raw);
+  upscope();
+  scope("ex");
+  scoreboard_entry.ex = cpu_exc_decode(cap_raw);
+  upscope();
+  ext2(scoreboard_entry.use_pc, 1);
+  ext2(scoreboard_entry.use_zimm, 1);
+  ext2(scoreboard_entry.use_imm, 1);
+  ext2(scoreboard_entry.valid, 1);
+  ext2(scoreboard_entry.result, 64);
+  ext2(scoreboard_entry.rd, 5);
+  ext2(scoreboard_entry.rs2, 5);
+  ext2(scoreboard_entry.rs1, 5);
+  ext2(scoreboard_entry.op, 7);
+  ext2(scoreboard_entry.fu, 4);
+  ext2(scoreboard_entry.trans_id, 3);
+  ext2(scoreboard_entry.pc, 64);
+  return scoreboard_entry;
+}
+
+commit_t cpu_commit_decode(uint64_t *cap_raw)
+{
+  commit_t commit;
+  memset(&commit, 0xAA, sizeof(commit_t));
+  cap_offset = 0;
+  scope(NULL);
+  scope("commit");
+  for (int i = 0; i < 20; i++)
+    {
+      char raw[10];
+      sprintf(raw, "raw%d", i);
+      vcd_info(strdup(raw), cap_raw[i], 64);
+    }
+  ext2(commit.count, 9);
+  ext2(commit.wdata_a_i, 64);
+  ext2(commit.waddr_a_i, 5);
+  ext2(commit.rdata_b_o, 64);
+  ext2(commit.raddr_b_i, 5);
+  ext2(commit.rdata_a_o, 64);
+  ext2(commit.raddr_a_i, 5);
+  // register file signals (for debug)
+  ext2(commit.priv_lvl, 2);
+  // current privilege level
+  scope("exception");
+  commit.exception = cpu_exc_decode(cap_raw);
+  upscope();
+  // exceptions
+  ext2(commit.ld_kill, 1);
+  ext2(commit.ld_valid, 1);
+  // loads
+  ext2(commit.paddr, 64);
+  ext2(commit.st_valid, 1);
+  // stores
+  // address translation
+  ext2(commit.commit_ack, 1);
+  scope("commit_instr");
+  commit.commit_instr =  cpu_scoreboard_decode(cap_raw);
+  upscope();
+  // commit
+  ext2(commit.we, 1);
+  ext2(commit.wdata, 64);
+  ext2(commit.waddr, 5);
+  // write-back
+  scope("issue_sbe");
+  commit.issue_sbe = cpu_scoreboard_decode(cap_raw);
+  upscope();
+  ext2(commit.issue_ack, 1);
+  // Issue
+  ext2(commit.fetch_ack, 1);
+  ext2(commit.fetch_valid, 1);
+  ext2(commit.instruction, 32);
+  // fetch
+  ext2(commit.flush, 1);
+  ext2(commit.flush_unissued, 1);
+  ext2(commit.rstn, 1);
+  ext2(commit.notcount, 9);
+  assert(cap_offset == 1248);
+  upscope();
+  dump_time();
+  return commit;
+}
+
+void cpu_commit_status(void)
+{
+  static int cap_last = 0;
+  commit_t *commit;
+  uint64_t status = jtag_peek(cap_addr);
+  int len = status;
+#if 0
+  commit_t commit_idle;
+  uint64_t commit_stat[20];
+  for (int i = 0; i < 20; i++)
+    commit_stat[i] = jtag_peek(debug_addr_cap+i*8);
+  commit_idle = cpu_commit_decode(commit_stat);
+  printf("Idle status: %.16lX\n", commit_idle.instruction);
+#endif  
+  uint64_t *cap_raw = read_data(cap_buf, len*32);
+  commit = (commit_t *)calloc(len, sizeof(commit_t));
+  if (len < cap_last)
+    {
+      close_vcd();
+      cap_last = 0;
+    }
+  for (int j = cap_last; j < len; j++)
+    {
+      commit[j] = cpu_commit_decode(cap_raw+j*32);
+      assert(commit[j].count+commit[j].notcount == 511);
+      if (verbose > 1) for (int i = 0; i < 20; i++)
+        printf("Raw status[%d,%d]: %.16lX\n", j, i, cap_raw[j*32+i]);
+    }
+  printf("Capture address: %.16lX\n", status);
+  cap_last = status;
+}
+
 uint64_t gpr_read(int gpr)
 {
   return cpu_read(DBG_GPR+gpr*8);
@@ -584,6 +766,8 @@ void cpu_flush(void)
 void cpu_debug(void)
 {
   int stopped;
+  verify_poke(dma_ctl_addr, axi_reset, dma_move_done_ro);  
+  verify_poke(dma_ctl_addr, 0, dma_move_done_ro);  
   cpu_stop();
   stopped = cpu_is_stopped();
   if (stopped)
@@ -595,21 +779,6 @@ void cpu_debug(void)
     }
   else
     printf("CPU is running\n");
-}
-
-typedef struct {  
-  uint64_t dma_addr; uint64_t dma_be; uint64_t dma_we;
-  uint64_t dma_req; uint64_t dma_capture;
-  } axi_rec_t;
-
-void dma_poke(axi_rec_t *burst)
-{
-  uint64_t mask = (burst->dma_capture ? dma_capture : 0)|
-    (burst->dma_req ? dma_req : 0) |
-    (burst->dma_we ? dma_we : 0)|
-    ((burst->dma_be&0xF)<<32)|
-    (burst->dma_addr&0xFFFFFFFF);
-  verify_poke(dma_ctrl_addr, mask, 0);  
 }
 
 void axi_counters(void)
@@ -635,37 +804,14 @@ void axi_readout(long addr, int len)
     }
 }
 
-axi_t *dbg;
-uint64_t *cap_raw;
-int cap_offset, vcdcnt = 0;
-enum {sleep_dly=100};
-
-static uint64_t ext(int wid)
-{
-  int shift = cap_offset&63;
-  uint64_t retval, mask = 1;
-  uint64_t lo = cap_raw[cap_offset>>6];
-  uint64_t hi = (cap_raw[(cap_offset>>6)+1] << 32) | (lo >> 32);
-  assert(wid <= 32);
-  if (shift >= 32) // value is split across words (we assume width <= 32)
-    {
-      retval = hi >> (shift-32);
-    }
-  else
-    retval = lo >> shift;    
-  retval &= (mask << wid)-1;
-  cap_offset += wid;
-  return retval;
-}
-
 void axi_capture_status(void)
 {
   int j;
   uint64_t status = jtag_peek(cap_addr);
   printf("Capture address: %.16lX\n", status);
   int len = status+1;
+  uint64_t *cap_raw = read_data(cap_buf, len*8);
   cap_offset = 0;
-  cap_raw = read_data(cap_buf, len*8);
   dbg = (axi_t *)calloc(len, sizeof(axi_t));
   for (j = 0; j < len; j++)
     {
@@ -741,59 +887,66 @@ void axi_capture_status(void)
       dbg[j].wrap_en    = ext(1);
       dbg[j].wrap_rdata = ext(18);
       assert(cap_offset%512 == 0);
-    }
-  open_vcd(vcdcnt++);
-  for (j = 0; j < len; j++)
-    {
-      dump_rec(dbg+j);
+      dump_time();
     }
   close_vcd();
-}
-
-void dma_test(long addr, int rnw, int siz, int len, int bufadr)
-{
-  uint32_t rslt;
-  axi_rec_t burst;
-  burst.dma_be = 0xF;
-  burst.dma_req = 1;
-  burst.dma_capture = 0;
-  for (int i = 0; i < 32; i += 4)
-    {
-      verify_poke(dma_data_addr, -1, 0);
-      burst.dma_addr = i;
-      burst.dma_we = 0;
-      dma_poke(&burst);
-      usleep(sleep_dly);
-      burst.dma_we = 1;
-      dma_poke(&burst);
-      usleep(sleep_dly);
-      burst.dma_we = 0;
-      dma_poke(&burst);
-      usleep(sleep_dly);
-      rslt = jtag_peek(dma_data_addr);
-      printf("dma[%2d] = %.08X\n", i, rslt);
-    }
-  if (verbose) printf("Make idle...\n");
-  dma_poke(&burst);
-  usleep(sleep_dly);
-  dma_poke(&burst);
-  usleep(sleep_dly);
-  if (verbose) printf("Go...\n");
-  dma_poke(&burst);
-  dma_poke(&burst);
 }
 
 #define HID_VGA 0x2000
 #define HID_LED 0x400F
 #define HID_DIP 0x401F
 
-enum {scroll_start=0, base=0x40000000, ddr=0x80000000};
-volatile uint32_t *const sd_base = (uint32_t *)(base+0x01010000);
-volatile uint32_t *const hid_vga_ptr = (uint32_t *)(base+0x01008000);
-const size_t eth = (base+0x01020000), hid = (base+0x01000000);
+volatile uint32_t *const sd_base = (uint32_t *)(axi_base+0x01010000);
+volatile uint32_t *const hid_vga_ptr = (uint32_t *)(axi_base+0x01008000);
+const size_t eth = (axi_base+0x01020000), hid = (axi_base+0x01000000);
 static int addr_int = scroll_start;
-static long vga_addr = (long)(base+0x01008000);
 
+void dma_copy(uint64_t axi_src_addr, uint64_t axi_dst_addr, int mask, int len)
+{
+  uint64_t status, dma_move_mask = mask & dma_strb_mask;  
+  verify_poke(dma_ctl_addr, dma_move_mask, dma_move_done_ro);  
+  verify_poke(dma_src_addr, axi_src_addr, 0);
+  verify_poke(dma_dest_addr, axi_dst_addr, 0);
+  verify_poke(dma_len_addr, len*sizeof(uint64_t), 0);
+  verify_poke(dma_ctl_addr, dma_move_mask|dma_move_en, dma_move_done_ro);  
+  do {
+    status = jtag_peek(dma_ctl_addr);
+  } while (dma_move_done_ro & ~status);
+  verify_poke(dma_ctl_addr, dma_move_mask, dma_move_done_ro);  
+}
+
+void axi_dma(void)
+{
+  enum {chunk=32, chkoff=0x100};
+  uint64_t *chk1, *chk2;
+  uint64_t *rslt = calloc(chunk, sizeof(uint64_t));
+  for (int j = 0; j < chunk; j++) rslt[j] = rand64();
+  tstcnt = 0;
+  write_data(shared_addr, chunk, rslt);
+  dma_copy(axi_shared_addr, axi_base, -1, chunk);
+  chk1 = read_data(boot_addr, chunk);
+  for (int i = 0; i < chunk; i++)
+    {
+      if (chk1[i] != rslt[i])
+        {
+          printf("Readback mismatch at offset %d (%.016lX != %.016lX)\n", i, chk1[i], rslt[i]);
+        }
+      ++tstcnt;
+    }
+  dma_copy(axi_base, axi_shared_addr+chkoff, -1, chunk);
+  chk2 = read_data(shared_addr+chkoff, chunk);
+  for (int i = 0; i < chunk; i++)
+    {
+      if (chk1[i] != chk2[i])
+        {
+          printf("Readback mismatch at offset %d (%.016lX != %.016lX)\n", i, chk1[i], chk2[i]);
+        }
+      ++tstcnt;
+    }
+  printf("DMA tests passed = %d\n", tstcnt);
+  dma_copy(axi_shared_addr, axi_vga_addr, -1, chunk);
+}
+  
 void axi_vga(const char *str)
 {
   enum {burst=128};
@@ -834,9 +987,9 @@ void axi_vga(const char *str)
            }
 #endif         
          write_data(shared_addr, line, (uint64_t *)frambuf);
-         dma_test(vga_addr+(l<<10), 0, 8, 128, 0);
+         dma_copy(axi_shared_addr, axi_vga_addr+(l<<10), -1, line);
          
-         dma_test(vga_addr+(l<<10), 1, 8, burst, 1<<10);
+         dma_copy(axi_vga_addr+(l<<10), axi_shared_addr, -1, line);
          chk1 = read_data(shared_addr+(1<<10), line);
          chk2 = (uint64_t *)frambuf;
           for (int i = 0; i < burst; i++)
@@ -862,9 +1015,9 @@ void axi_ramtest(uint64_t axi_addr, int siz)
          for (int i = len; i < line-len; i++)
            frambuf[i] = (i+l)%0x5F + ' ';
          write_data(shared_addr, words, (uint64_t *)frambuf);
-         dma_test(axi_addr+(l<<7), 0, 8, words, 0);
+         dma_copy(axi_shared_addr, axi_addr+(l<<7), -1, words);
          
-         dma_test(axi_addr+(l<<7), 1, 8, words, 1<<10);
+         dma_copy(axi_addr+(l<<7), axi_shared_addr+(1<<10), -1, words);
          chk1 = read_data(shared_addr+(1<<10), words);
          chk2 = (uint64_t *)frambuf;
          for (int i = 0; i < words; i++)
@@ -882,10 +1035,10 @@ void axi_ramtest(uint64_t axi_addr, int siz)
 
 void axi_dipsw(void)
 {
-  dma_test(hid + HID_DIP*4, 1, 4, 1, -8);
+  dma_copy(hid + HID_DIP*4, axi_shared_addr, -1, 1);
   uint64_t dip = *read_data(shared_addr, 1);
   printf("DIP SW: %.4lX\n", dip);
-  dma_test(hid + HID_LED*4, 0, 4, 1, -8);
+  dma_copy(axi_shared_addr, hid + HID_LED*4, -1, 1);
 }
 
 int main(int argc, const char **argv)
@@ -894,6 +1047,8 @@ int main(int argc, const char **argv)
   int bridge = 0;
   int vidtest = 0;
   int axitest = 0;
+  int dmatest = 0;
+  const char *interface = "ftdi";
   srand48(time(0));
   while (argc >= 2 && (argv[1][0]=='-'))
     {
@@ -901,6 +1056,12 @@ int main(int argc, const char **argv)
       {
       case 'c':
         capture = 1;
+        break;
+      case 'd':
+        dmatest = 1;
+        break;
+      case 'i':
+        interface = 2+argv[1];
         break;
       case 'p':
         bridge = atoi(2+argv[1]);
@@ -920,7 +1081,7 @@ int main(int argc, const char **argv)
       }
     --argc; ++argv;
     }
-  my_command_init(verbose);
+  my_command_init(verbose, interface);
   if (argc > 1)
    {
      my_command.name = "svf";
@@ -940,19 +1101,20 @@ int main(int argc, const char **argv)
       my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
       dbg_master = 0;
       cpu_debug();
+      if (dmatest) axi_dma();
       if (memtest)
         {
           enum {burst=128};
           uint64_t *chk1, *chk2, *pattern1 = calloc(burst, sizeof(uint64_t));;
           for (int j = 0; j < burst; j++) pattern1[j] = 1ULL << j&63;
           tstcnt = 0;
-          my_mem_test(12, shared_addr);
+          my_mem_test(12, axi_shared_addr);
           printf("Shared addr tests passed = %d\n", tstcnt);
           tstcnt = 0;
           my_mem_test(14, boot_addr);
           printf("Boot addr tests passed = %d\n", tstcnt);
           
-          dma_test(base, 1, 8, burst, 0);
+          dma_copy(axi_base, axi_shared_addr, -1, burst);
           chk1 = read_data(shared_addr, burst);
           chk2 = read_data(boot_addr, burst);
           for (int i = 0; i < burst; i++)
@@ -963,7 +1125,7 @@ int main(int argc, const char **argv)
                 }
             }
           my_mem_test(12, shared_addr);
-          dma_test(base, 0, 8, burst, 0);
+          dma_copy(axi_shared_addr, axi_base, -1, burst);
           chk1 = read_data(shared_addr, burst);
           chk2 = read_data(boot_addr, burst);
           for (int i = 0; i < burst; i++)
@@ -976,9 +1138,9 @@ int main(int argc, const char **argv)
         }
       if (axitest)
         {
-          axi_ramtest(vga_addr, 1 << 12);
-          //          axi_ramtest(base, 1 << 12);
-          axi_ramtest(ddr, 1 << 7);
+          axi_ramtest(axi_vga_addr, 1 << 12);
+          //          axi_ramtest(axi_base, 1 << 12);
+          axi_ramtest(axi_ddr, 1 << 7);
         }
       if (vidtest)
         {

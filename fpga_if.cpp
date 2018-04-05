@@ -82,10 +82,10 @@ FpgaIF::access(bool write, uint64_t addr, int size, uint64_t *buffer) {
               printf("memwrite[%.016lX] = %.016lX\n", i*8+addr, buffer[i]);
 #endif
             write_data(shared_addr, beats, buffer);
-            dma_test(addr, 0, 8, beats, 0);
+            dma_copy(axi_shared_addr, addr, -1, beats);
             // verify
             write_data(shared_addr, beats, zeros);
-            dma_test(addr, 1, 8, beats, 0);
+            dma_copy(addr, axi_shared_addr, -1, beats);
             rdata = read_data(shared_addr, beats);
             for (i = 0; i < beats; i++)
               if (rdata[i] != buffer[i])
@@ -95,7 +95,7 @@ FpgaIF::access(bool write, uint64_t addr, int size, uint64_t *buffer) {
           {
             // read
             write_data(shared_addr, beats, zeros);
-            dma_test(addr, 1, 8, beats, 0);
+            dma_copy(addr, axi_shared_addr, -1, beats);
             rdata = read_data(shared_addr, beats);
             for (i = 0; i < beats; i++)
               printf("memread[%.016lX] = %.016lX\n", i*8+addr, rdata[i]);

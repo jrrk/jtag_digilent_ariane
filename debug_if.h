@@ -28,7 +28,7 @@ class DbgIF {
     DbgIF(MemIF* mem, unsigned int base_addr, LogIF *log);
 
     bool pc_read(uint64_t* pc);
-    void pc_write(uint64_t wdata);
+    void pc_write(uint64_t wdata, bool trace_rst);
     void flush();
 
     bool halt();
@@ -39,6 +39,8 @@ class DbgIF {
     bool write_and_stop(unsigned int addr, uint64_t wdata);
     bool write_and_go(unsigned int addr, uint64_t wdata);
     bool read(unsigned int addr, uint64_t* rdata);
+    bool step_and_stop(bool capture, uint64_t wdata);
+    bool ctrl_and_go();
 
     bool gpr_write(unsigned int addr, uint64_t wdata);
     bool gpr_read_all(uint64_t* data);
