@@ -492,6 +492,9 @@ uint64_t verify_cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt)
   // Try to set debug request
   ctrl = cpu_req|halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
+  do {
+    rslt = jtag_peek(debug_addr_hi);
+  } while (cpu_gnt_ro&~rslt);
   ctrl = cpu_we|cpu_req|halt|cpu_nofetch|(cpu_addr&cpu_addr_mask);
   verify_poke(debug_addr_hi, ctrl, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
   ctrl = cpu_req|cpu_nofetch|(cpu_addr&cpu_addr_mask);

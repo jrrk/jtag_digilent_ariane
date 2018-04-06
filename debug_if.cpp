@@ -31,8 +31,8 @@ void
 DbgIF::pc_write(uint64_t wdata, bool trace_rst) {
   cpu_mode_t rst = trace_rst ? capture_rst : cpu_void;
   capture_flags(rst);
-  cpu_ctrl(DBG_NPC_REG, wdata, 1);
-  cpu_ctrl(DBG_PPC_REG, wdata, 1);
+  write_and_stop(DBG_NPC_REG, wdata);
+  write_and_stop(DBG_PPC_REG, wdata);
   pc_override(true);
 }
 
@@ -50,7 +50,7 @@ DbgIF::pc_read(uint64_t* pc) {
   read(DBG_CAUSE_REG, &cause);
 
   if (m_pc_override)
-    *pc = ppc;
+    *pc = m_pc_override;
   else if (npc && (hit & 0x1))
     *pc = npc;
   else if(cause & (1 << 31)) // interrupt
@@ -87,7 +87,6 @@ DbgIF::write(uint32_t addr, uint64_t wdata) {
 bool
 DbgIF::write_and_stop(uint32_t addr, uint64_t wdata) {
   printf("reg_write_and_stop(%s,%.016lX)\n", dbgnam(addr), wdata);
-  if (addr==DBG_CTRL_REG) abort();
   cpu_ctrl(addr, wdata, 1);
   return true;
 }
@@ -101,8 +100,13 @@ DbgIF::write_and_go(uint32_t addr, uint64_t wdata) {
 
 bool
 DbgIF::step_and_stop(bool capture, uint64_t wdata) {
-  printf("step_and_stop()\n");
-  pc_write(wdata, false);
+  printf("step_and_stop(%.016lX)\n", wdata);
+#if 0
+  uint64_t oldpc;
+  pc_read(&oldpc);
+  if (oldpc != wdata)
+    pc_write(wdata, false);
+#endif  
   pc_override(false);
   if (capture)
     {
@@ -114,7 +118,7 @@ DbgIF::step_and_stop(bool capture, uint64_t wdata) {
     }
   else
     capture_flags(cpu_void);
-  cpu_ctrl(DBG_CTRL_REG, 0x1, 1);    
+  write_and_stop(DBG_CTRL_REG, 0x1);    
   return true;
 }
 
@@ -123,12 +127,12 @@ DbgIF::ctrl_and_go() {
   printf("ctrl_and_go()\n");
   // clear hit register, has to be done before CTRL
   capture_flags(cpu_void);
-  cpu_ctrl(DBG_HIT_REG, 0x0, 1);
+  write_and_stop(DBG_HIT_REG, 0x0);
   if (0)
     capture_flags((cpu_mode_t)(capture_rst|cpu_capture));
   else
     capture_flags(cpu_capture);
-  cpu_ctrl(DBG_CTRL_REG, 0x0, 0);
+  write_and_go(DBG_CTRL_REG, 0x0);
   return true;
 }
 

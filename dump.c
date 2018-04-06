@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <time.h>
 #include <memory.h>
 #include <assert.h>
@@ -10,6 +12,19 @@ static int time_inc;
 static int vcd_offset;
 static int vcdcnt = 0;
 
+static char *backup(int cnt)
+{
+  char nam[20];
+  sprintf(nam, "test%d.vcd", cnt);
+  if (!access(nam, F_OK))
+    {
+      char *nam1 = backup(cnt+1);
+      printf("rename(%s, %s);\n", nam, nam1);
+      rename(nam, nam1);
+    }
+  return strdup(nam);
+}
+
 void scope(const char *hier)
 {
   if (!hier)
@@ -17,9 +32,9 @@ void scope(const char *hier)
       vcd_offset = '!';
       if (!time_inc)
         {
-          char nam[20];
+          char *nam;
           time_t now;
-          sprintf(nam, "test%d.vcd", vcdcnt++);
+          nam = backup(vcdcnt++);
           vcdf = fopen(nam,"w");
           assert(vcdf != NULL);
           time(&now);

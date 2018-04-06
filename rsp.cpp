@@ -911,17 +911,8 @@ Rsp::step(int tid) {
   // if there is a breakpoint at this address, let's remove it and single-step over it
   if (m_bp->at_addr(ppc))
     m_bp->disable(tid, ppc);
-  bp = m_bp->at_addr(ppc+4);
-  if (bp)
-    m_bp->enable(tid, ppc+4);
-  else
-    m_bp->insert(tid, ppc+4);
   dbgif->step_and_stop(true, ppc); // single-step
-  if (!bp)
-    m_bp->remove(tid, ppc+4);
-  if (m_bp->at_addr(ppc))
-    m_bp->enable(tid, ppc);
-
+  
   return waitStop(dbgif);
 }
 
