@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <time.h>
@@ -7,10 +8,12 @@
 #include "dump.h"
 
 FILE *vcdf;
-static uint64_t prev[256];
+static struct {
+  uint64_t dst;
+  int width;
+} prev[128];
 static int time_inc;
 static int vcd_offset;
-static int vcdcnt = 0;
 
 static char *backup(int cnt)
 {
@@ -34,7 +37,7 @@ void scope(const char *hier)
         {
           char *nam;
           time_t now;
-          nam = backup(vcdcnt++);
+          nam = backup(0);
           vcdf = fopen(nam,"w");
           assert(vcdf != NULL);
           time(&now);
@@ -77,19 +80,15 @@ void bin(uint64_t value, int wid)
 
 static void dump(int i, int w, uint64_t value)
 {
-  if (time_inc && ((prev[i] != value) || (time_inc == 1)))
+  assert(vcdf);
+  if (w > 1)
     {
-      assert(vcdf);
-      if (w > 1)
-        {
-          fprintf(vcdf, "b");
-          bin(value, w);
-          fprintf(vcdf, " %c\n", i);
-        }
-      else
-        fprintf(vcdf, "%c%c\n", value&1?'1':'0', i);
+      fprintf(vcdf, "b");
+      bin(value, w);
+      fprintf(vcdf, " %c\n", i);
     }
-  prev[i] = value;
+  else
+    fprintf(vcdf, "%c%c\n", value&1?'1':'0', i);
 }
 
 void vcd_info(const char *label, uint64_t dst, int w)
@@ -104,9 +103,17 @@ void vcd_info(const char *label, uint64_t dst, int w)
   assert(vcdf);
   if (!time_inc)
     {
+      assert(vcd_offset < 128);
+      prev[vcd_offset].width = w;
       fprintf(vcdf, "$var wire %d %c %s%s $end\n", w, vcd_offset, name, nambuf);
     }
-  dump(vcd_offset, w, dst);
+  else
+    {
+      assert(prev[vcd_offset].width == w);
+      if (prev[vcd_offset].dst != dst)
+        dump(vcd_offset, w, dst);
+    }
+  prev[vcd_offset].dst = dst;
   vcd_offset++;
 }
 
@@ -119,11 +126,11 @@ void dump_time(void)
       fprintf(vcdf, "\n");
       fprintf(vcdf, "#0\n");
       fprintf(vcdf, "$dumpvars\n");
+      for (int i = '!'; i < vcd_offset; i++)
+        dump(i, prev[i].width, prev[i].dst);
     }
-  else
-    fprintf(vcdf, "#%d\n", time_inc);
+  fprintf(vcdf, "#%d\n", ++time_inc);
   fflush(vcdf);
-  ++time_inc;
 }
 
 void close_vcd(void)

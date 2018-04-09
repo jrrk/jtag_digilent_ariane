@@ -3,7 +3,7 @@ O = regnum.o dump.o adapter.o commands.o core.o interface.o interfaces.o jtag/ai
 P = breakpoints.cpp bridge.cpp cache.cpp debug_if.cpp fpga_if.cpp rsp.cpp
 X = breakpoints.o bridge.o cache.o debug_if.o fpga_if.o rsp.o
 
-CFLAGS = -g -Wall -I. -Ijtag -Ihelper -Ijimtcl -Ijtag/drivers/libjaylink -DHAVE_CONFIG_H -I/usr/include/libusb-1.0 -DBUILD_ULINK=0 # -DVERBOSE # -DSVF_VERBOSE
+CFLAGS =-std=gnu99 -g -Wall -I. -Ijtag -Ihelper -Ijimtcl -Ijtag/drivers/libjaylink -DHAVE_CONFIG_H -I/usr/include/libusb-1.0 -DBUILD_ULINK=0 # -DVERBOSE # -DSVF_VERBOSE
 CXXFLAGS =
 
 jtag_digilent_ariane: $O $P
