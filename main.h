@@ -166,8 +166,16 @@ typedef enum {
 
   extern int verbose;
   
+  void rocketlog_main(const char *elf);
+  int pipe27(long long arg1, long long arg2, long long arg3, long long arg4, long long arg5,
+           long long arg6, long long arg7, long long arg8, long long arg9, long long arg10, 
+           long long arg11, long long arg12, long long arg13, long long arg14, long long arg15,
+           long long arg16, long long arg17, long long arg18, long long arg19, long long arg20, 
+           long long arg21, long long arg22, long long arg23, long long arg24, long long arg25,
+           long long arg26, long long arg27);
   void write_data(jtag_addr_t addr, int len, uint64_t *cnvptr);
   uint64_t *read_data(jtag_addr_t addr, int len);
+  void main_access(bool write, uint64_t addr, int size, uint64_t *buffer);
   void dma_copy(uint64_t axi_src_addr, uint64_t axi_dst_addr, int mask, int len);
   void cpu_ctrl(int cpu_addr, uint64_t cpu_data, int force_halt);
   void capture_flags(cpu_mode_t flags);

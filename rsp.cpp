@@ -634,13 +634,13 @@ Rsp::signal() {
 
   dbgif = this->get_dbgif(m_thread_sel);
 
-  dbgif->write(DBG_IE_REG, 0xFFFF);
+  dbgif->write(DBG_IE, 0xFFFF);
 
   // figure out why we are stopped
   if (dbgif->is_stopped()) {
-    if (!dbgif->read(DBG_HIT_REG, &hit))
+    if (!dbgif->read(DBG_HIT, &hit))
       return false;
-    if (!dbgif->read(DBG_CAUSE_REG, &cause))
+    if (!dbgif->read(DBG_CAUSE, &cause))
       return false;
 
     if (hit & 0x1)
@@ -814,7 +814,7 @@ Rsp::resumeCoresPrepare(DbgIF *dbgif, bool step) {
     dbgif->step_and_stop(false, ppc); // single-step
     while (1) {
       uint64_t value;
-      dbgif->read(DBG_CTRL_REG, &value);
+      dbgif->read(DBG_CTRL, &value);
       if ((value >> 16) & 1) break;
     }
     m_bp->enable(m_thread_sel, ppc);
@@ -823,20 +823,20 @@ Rsp::resumeCoresPrepare(DbgIF *dbgif, bool step) {
 
   if (!step || !hasStepped) {
     // clear hit register, has to be done before CTRL
-    dbgif->write(DBG_HIT_REG, 0);
+    dbgif->write(DBG_HIT, 0);
 
     if (step)
-      dbgif->write(DBG_CTRL_REG, (1<<16) | 0x1);
+      dbgif->write(DBG_CTRL, (1<<16) | 0x1);
     else
-      dbgif->write_and_go(DBG_CTRL_REG, (1<<16) | 0);
+      dbgif->write_and_go(DBG_CTRL, (1<<16) | 0);
   }
 }
 
 void
 Rsp::resumeCores() {
     uint64_t value;
-    this->get_dbgif(0)->read(DBG_CTRL_REG, &value);
-    this->get_dbgif(0)->write_and_stop(DBG_CTRL_REG, value & ~(1<<16));
+    this->get_dbgif(0)->read(DBG_CTRL, &value);
+    this->get_dbgif(0)->write_and_stop(DBG_CTRL, value & ~(1<<16));
 }
 
 bool

@@ -4,6 +4,7 @@
 
 #include <helper/time_support.h>
 #include <stdlib.h>
+#include <bfd.h>
 
 #include "target/target.h"
 #include <jtag/interface.h>
@@ -17,6 +18,9 @@
 #include "interfaces.h"
 #include <transport/transport.h>
 #include <jtag/jtag.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <search.h>
 #include "dump.h"
 #include "main.h"
 
@@ -571,8 +575,8 @@ int cpu_is_stopped(void)
     }
 }
 
-axi_t *dbg;
-int cap_offset;
+int cap_offset, step, formal;
+static const char *regression = NULL;
 enum {sleep_dly=100};
 
 #define ext(wid) _ext(cap_raw, wid)
@@ -719,10 +723,70 @@ commit_t cpu_commit_decode(uint64_t *cap_raw)
   return commit;
 }
 
+enum {mchunk = 1<<20};
+static struct hsearch_data htab;
+
+void search_error(const char *file, int line)
+{
+  fprintf(stderr, "Search error %s:%d\n", file, line);
+  abort();
+}
+
+ENTRY *msearch(uint64_t addr, ACTION action)
+{
+  ENTRY e, *ep;
+  char key[20];
+  if (!addr)
+    abort();
+  sprintf(key, "%lX", addr&(-mchunk));
+  e.key = key;
+  if (hsearch_r(e, FIND, &ep, &htab))
+    {
+      if (verbose)
+        fprintf(stderr, "Found %s\n", key);
+      return ep;
+    }
+  if (action == ENTER)
+    {
+      e.key = strdup(key);
+      e.data = calloc(sizeof(uint64_t), mchunk>>6);
+      if (!hsearch_r(e, ENTER, &ep, &htab))
+        search_error(__FILE__,__LINE__);
+    }
+  return ep;
+}
+
+int mdefined(uint64_t addr)
+{
+  uint64_t *ptr, mask = 1;
+  uint32_t low = addr & (mchunk-1);
+  ENTRY *ep = msearch(addr, FIND);
+  if (ep) 
+    {
+      ptr = ep->data;
+      return ptr[low>>6] & (mask << (low&63)) ? 1 : 0;
+    }
+  return 0;
+}
+
+void mdefine(uint64_t addr)
+{
+  uint64_t *ptr, mask = 1;
+  uint32_t low = addr & (mchunk-1);
+  ENTRY *ep = msearch(addr, ENTER);
+  ptr = ep->data;
+  ptr[low>>6] |= (mask << (low&63));
+}
+
+void mrange_define(uint64_t addr, uint64_t bufsz)
+{
+  while (bufsz--)
+    mdefine(addr++);
+}
+
 void cpu_commit_status(void)
 {
   static int cap_last = 0;
-  commit_t *commit;
   uint64_t status = jtag_peek(cap_addr);
   int len = status;
 #if 0
@@ -734,7 +798,6 @@ void cpu_commit_status(void)
   printf("Idle status: %.16lX\n", commit_idle.instruction);
 #endif  
   uint64_t *cap_raw = read_data(cap_buf, len*32);
-  commit = (commit_t *)calloc(len, sizeof(commit_t));
   if (len < cap_last)
     {
       close_vcd();
@@ -742,8 +805,24 @@ void cpu_commit_status(void)
     }
   for (int j = cap_last; j < len; j++)
     {
-      commit[j] = cpu_commit_decode(cap_raw+j*32);
-      assert(commit[j].count+commit[j].notcount == 511);
+      commit_t commit = cpu_commit_decode(cap_raw+j*32);
+      commit.commit_ack = 1; // hack alert
+      assert(commit.count+commit.notcount == 511);
+      if (regression)
+        {
+          if (!mdefined(commit.commit_instr.pc))
+            {
+              printf("PC=%.16lX is out of defined range\n", commit.commit_instr.pc);
+              commit.commit_instr.ex.tval = 0xDEADBEEF;
+            }
+          if (formal)
+            pipe27(commit.rstn, commit.commit_ack, commit.commit_instr.pc, commit.commit_instr.ex.tval & 0xFFFFFFFF, commit.exception.valid, 
+             commit.commit_instr.ex.cause, commit.flush_unissued, commit.flush, commit.instruction, commit.fetch_valid, 
+             commit.fetch_ack, commit.issue_ack, commit.waddr, commit.wdata, commit.we, 
+             commit.commit_ack, commit.st_valid, commit.paddr, commit.ld_valid, commit.ld_kill, 
+             commit.priv_lvl, commit.raddr_a_i, commit.rdata_a_o, commit.raddr_b_i,
+             commit.rdata_b_o, commit.waddr_a_i, commit.wdata_a_i);
+        }
       if (verbose > 1) for (int i = 0; i < 20; i++)
         printf("Raw status[%d,%d]: %.16lX\n", j, i, cap_raw[j*32+i]);
     }
@@ -777,11 +856,17 @@ void cpu_flush(void)
   cpu_ctrl(DBG_NPC, data, 1);
 }
 
+void cpu_reset(void)
+{
+  verify_poke(debug_addr_hi, capture_flags_saved, cpu_gnt_ro|cpu_halted_ro|cpu_rvalid_ro);
+  verify_poke(dma_ctl_addr, axi_reset, dma_move_done_ro);
+  verify_poke(dma_ctl_addr, 0, dma_move_done_ro);
+}
+
 void cpu_debug(void)
 {
   int stopped;
-  verify_poke(dma_ctl_addr, axi_reset, dma_move_done_ro);  
-  verify_poke(dma_ctl_addr, 0, dma_move_done_ro);  
+  cpu_reset();
   cpu_stop();
   stopped = cpu_is_stopped();
   if (stopped)
@@ -825,8 +910,8 @@ void axi_capture_status(void)
   printf("Capture address: %.16lX\n", status);
   int len = status+1;
   uint64_t *cap_raw = read_data(cap_buf, len*8);
+  axi_t *dbg = (axi_t *)calloc(len, sizeof(axi_t));
   cap_offset = 0;
-  dbg = (axi_t *)calloc(len, sizeof(axi_t));
   for (j = 0; j < len; j++)
     {
       dbg[j].ar_addr   = ext(32);
@@ -1055,6 +1140,199 @@ void axi_dipsw(void)
   dma_copy(axi_shared_addr, hid + HID_LED*4, -1, 1);
 }
 
+void main_access(bool write, uint64_t addr, int size, uint64_t *buffer)  
+     {
+       uint64_t *rdata;
+       if ((addr >= 0x40000000) && (addr <= 0x4000FFFF))
+         {
+           int i, beats = (size+sizeof(uint64_t)-1)/sizeof(uint64_t);
+           jtag_addr_t baddr = (jtag_addr_t)(boot_addr+(addr&0xFFFF));
+           if (write)
+             {
+               // write
+#if 0
+               for (i = 0; i < beats; i++) // if (i*8+addr < 0x40000100)
+                 printf("bootmemwrite[%.016lX] = %.016lX\n", i*8+addr, buffer[i]);
+#endif
+               write_data(baddr, beats, buffer);
+               rdata = read_data(baddr, beats);
+               for (i = 0; i < beats; i++)
+                 if (rdata[i] != buffer[i])
+                   printf("%d/%d: bootmemverify[%.016lX] = %.016lX (was %.016lX)\n", i+1, beats+1, i*8+addr, rdata[i], buffer[i]);
+             }
+           else
+             {
+               // read
+               rdata = read_data(baddr, beats);
+#if 0
+               for (i = 0; i < beats; i++) if (i*8+addr < 0x40000020)
+                                             printf("bootmemread[%.016lX] = %.016lX\n", i*8+addr, rdata[i]);
+#endif
+               memcpy(buffer, rdata, size);
+             }
+         }
+       else
+         {
+           int i, beats = (size+sizeof(uint64_t)-1)/sizeof(uint64_t);
+           uint64_t *zeros = (uint64_t *)calloc(beats, sizeof(uint64_t));
+           if (write)
+             {
+               // write
+#if 0
+               for (i = 0; i < beats; i++)
+                 printf("memwrite[%.016lX] = %.016lX\n", i*8+addr, buffer[i]);
+#endif
+               write_data(shared_addr, beats, buffer);
+               dma_copy(axi_shared_addr, addr, -1, beats);
+               // verify
+               write_data(shared_addr, beats, zeros);
+               dma_copy(addr, axi_shared_addr, -1, beats);
+               rdata = read_data(shared_addr, beats);
+               for (i = 0; i < beats; i++)
+                 if (rdata[i] != buffer[i])
+                   printf("%d/%d: memverify[%.016lX] = %.016lX (was %.016lX)\n", i+1, beats+1, i*8+addr, rdata[i], buffer[i]);
+             }
+           else
+             {
+               // read
+               write_data(shared_addr, beats, zeros);
+               dma_copy(addr, axi_shared_addr, -1, beats);
+               rdata = read_data(shared_addr, beats);
+               for (i = 0; i < beats; i++)
+                 printf("memread[%.016lX] = %.016lX\n", i*8+addr, rdata[i]);
+               memcpy(buffer, rdata, size);
+             }
+           free(zeros);
+         }
+     }
+
+uint64_t loadMemory(uint64_t addr, uint8_t *buf, uint64_t bufsz)
+{
+  uint64_t *buf2 = (uint64_t *)calloc(sizeof(uint8_t), bufsz);
+  memcpy(buf2, buf, bufsz);
+  main_access(true, addr, bufsz, buf2);
+  free(buf2);
+  mrange_define(addr, bufsz);
+  return bufsz;
+}
+
+uint64_t initMemory(uint64_t addr, uint64_t bufsz) {
+  uint64_t *buf = (uint64_t *)calloc(sizeof(uint8_t), bufsz);
+  main_access(true, addr, bufsz, buf);
+  free(buf);
+  mrange_define(addr, bufsz);
+  return bufsz;
+}
+
+uint64_t regression_load(const char *regression)
+        {
+          uint64_t total_bytes = 0;
+          int chk, entry;
+          bfd *handle;
+          
+          hcreate_r(30, &htab);
+          bfd_init();
+          handle = bfd_openr(regression, "default");
+          if (!handle)
+            {
+              perror(regression);
+              exit(1);
+            }
+          chk = bfd_check_format(handle, bfd_object);
+          if (!chk)
+            {
+              perror(regression);
+              exit(1);
+            }
+          entry = bfd_get_start_address(handle);
+          /* load the corresponding section to memory */
+          for (asection *s = handle->sections; s; s = s->next)
+            {
+              int flags = bfd_get_section_flags (handle, s);
+              int siz = (unsigned int) bfd_section_size (handle, s);
+              bfd_vma lma = (unsigned int) bfd_section_vma (handle, s);
+              bfd_vma vma = (unsigned int) bfd_section_vma (handle, s);
+              const char *nam = bfd_section_name (handle, s);
+              
+              if (flags & (SEC_LOAD))
+                {
+                  if (lma != vma)
+                    {
+                      fprintf (stderr, "loadable section %s: lma = 0x%08x (vma = 0x%08x)  size = 0x%08x\n",
+                              nam,
+                              (unsigned int) lma,
+                              (unsigned int) vma,
+                              siz);
+                    }
+                  else
+                    {
+                      bfd_byte contents[siz];
+                      
+                      fprintf (stderr, "loadable section %s: addr = 0x%08x  size = 0x%08x\n",
+                              nam,
+                              (unsigned int) vma,
+                              siz);
+                      if (bfd_get_section_contents (handle, s,
+                                                    contents, (file_ptr) 0,
+                                            siz))
+                        {
+                          if (strcmp(nam,".sdata.CSWTCH.80") && strcmp(nam, ".sdata.Stat")) // Yikes
+                            total_bytes += loadMemory(vma, contents, siz);
+                        }
+                    }
+                }
+              else
+                {
+                  fprintf (stderr, "non-loadable section %s: addr = 0x%08x  size = 0x%08x\n",
+                          nam,
+                          (unsigned int) vma,
+                          siz);
+                  if (vma)
+                    total_bytes += initMemory(vma, siz);
+                }
+            }                   //end of for loop
+          
+          fprintf(stderr, "Loaded: %ld B", total_bytes);
+
+          bfd_close(handle);
+          return entry;
+        }
+
+void regression_test(const char *regression)
+        {
+          static char env[256];
+          uint64_t entry = regression_load(regression);
+          printf("Entry point is at address %.8lX\n", entry);
+          if (formal)
+            {
+              sprintf(env, "SIM_ELF_FILENAME=%s", regression);
+              putenv(env);
+              rocketlog_main(regression);
+            }
+          capture_flags(capture_rst);
+          cpu_ctrl(DBG_NPC, entry, 1);
+          cpu_ctrl(DBG_PPC, entry, 1);
+          cpu_ctrl(DBG_CTRL, 0x1, 1); // This seems to be necessary to latch the PC
+          axi_counters();
+          capture_flags(cpu_capture);
+          if (step)
+            {
+              do
+                {
+                  cpu_ctrl(DBG_CTRL, 0x1, 1);
+                }
+              while (jtag_peek(cap_addr) < 0x1FF);
+            }
+          else
+            {
+              cpu_reset();
+              usleep(10000);
+              axi_counters();
+              cpu_debug();
+            }
+          cpu_commit_status();        
+        }
+
 int main(int argc, const char **argv)
 {
   int memtest = 0;
@@ -1074,11 +1352,20 @@ int main(int argc, const char **argv)
       case 'd':
         dmatest = 1;
         break;
+      case 'f':
+        formal = 1;
+        break;
       case 'i':
         interface = 2+argv[1];
         break;
       case 'p':
         bridge = atoi(2+argv[1]);
+        break;
+      case 'r':
+        regression = 2+argv[1];
+        break;
+      case 's':
+        step = 1;
         break;
       case 't':
         memtest = 1;
@@ -1160,6 +1447,10 @@ int main(int argc, const char **argv)
         {
           axi_vga(" ** Hello JTAG Master ** ");
           axi_dipsw();
+        }
+      if (regression)
+        {
+          regression_test(regression);
         }
       if (bridge)
         {

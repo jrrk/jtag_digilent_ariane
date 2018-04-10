@@ -9,3 +9,5 @@ jtag_dummy.sim
 jtag_dummy.srcs
 test*.vcd
 main_*.c
+*_filt.log
+*.gtkw

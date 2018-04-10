@@ -31,8 +31,8 @@ void
 DbgIF::pc_write(uint64_t wdata, bool trace_rst) {
   cpu_mode_t rst = trace_rst ? capture_rst : cpu_void;
   capture_flags(rst);
-  write_and_stop(DBG_NPC_REG, wdata);
-  write_and_stop(DBG_PPC_REG, wdata);
+  write_and_stop(DBG_NPC, wdata);
+  write_and_stop(DBG_PPC, wdata);
   pc_override(true);
 }
 
@@ -43,11 +43,11 @@ DbgIF::pc_read(uint64_t* pc) {
   uint64_t cause;
   uint64_t hit;
 
-  read(DBG_PPC_REG, &ppc);
-  read(DBG_NPC_REG, &npc);
+  read(DBG_PPC, &ppc);
+  read(DBG_NPC, &npc);
 
-  read(DBG_HIT_REG, &hit);
-  read(DBG_CAUSE_REG, &cause);
+  read(DBG_HIT, &hit);
+  read(DBG_CAUSE, &cause);
 
   if (m_pc_override)
     *pc = m_pc_override;
@@ -118,7 +118,7 @@ DbgIF::step_and_stop(bool capture, uint64_t wdata) {
     }
   else
     capture_flags(cpu_void);
-  write_and_stop(DBG_CTRL_REG, 0x1);    
+  write_and_stop(DBG_CTRL, 0x1);    
   return true;
 }
 
@@ -127,12 +127,12 @@ DbgIF::ctrl_and_go() {
   printf("ctrl_and_go()\n");
   // clear hit register, has to be done before CTRL
   capture_flags(cpu_void);
-  write_and_stop(DBG_HIT_REG, 0x0);
+  write_and_stop(DBG_HIT, 0x0);
   if (0)
     capture_flags((cpu_mode_t)(capture_rst|cpu_capture));
   else
     capture_flags(cpu_capture);
-  write_and_go(DBG_CTRL_REG, 0x0);
+  write_and_go(DBG_CTRL, 0x0);
   return true;
 }
 
@@ -146,13 +146,13 @@ DbgIF::read(uint32_t addr, uint64_t* rdata) {
 bool
 DbgIF::halt() {
   uint64_t data;
-  if (!this->read(DBG_CTRL_REG, &data)) {
+  if (!this->read(DBG_CTRL, &data)) {
     fprintf(stderr, "debug_is_stopped: Reading from CTRL reg failed\n");
     return false;
   }
 
   data |= 0x1 << 16;
-  return this->write(DBG_CTRL_REG, data);
+  return this->write(DBG_CTRL, data);
 }
 
 bool
