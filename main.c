@@ -866,6 +866,7 @@ void cpu_reset(void)
 void cpu_debug(void)
 {
   int stopped;
+  capture_flags(cpu_halt);
   cpu_reset();
   cpu_stop();
   stopped = cpu_is_stopped();
@@ -1002,7 +1003,8 @@ static int addr_int = scroll_start;
 
 void dma_copy(uint64_t axi_src_addr, uint64_t axi_dst_addr, int mask, int len)
 {
-  uint64_t status, dma_move_mask = mask & dma_strb_mask;  
+  uint64_t status, dma_move_mask = mask & dma_strb_mask;
+  assert(len <= 2048);
   verify_poke(dma_ctl_addr, dma_move_mask, dma_move_done_ro);  
   verify_poke(dma_src_addr, axi_src_addr, 0);
   verify_poke(dma_dest_addr, axi_dst_addr, 0);
@@ -1140,6 +1142,24 @@ void axi_dipsw(void)
   dma_copy(axi_shared_addr, hid + HID_LED*4, -1, 1);
 }
 
+void write_chunk(uint64_t addr, int beats, uint64_t *buffer, uint64_t *zeros)
+{
+  uint64_t *rdata;
+#if 0
+  for (int i = 0; i < beats; i++)
+    printf("memwrite[%.016lX] = %.016lX\n", i*8+addr, buffer[i]);
+#endif
+  write_data(shared_addr, beats, buffer);
+  dma_copy(axi_shared_addr, addr, -1, beats);
+  // verify
+  write_data(shared_addr, beats, zeros);
+  dma_copy(addr, axi_shared_addr, -1, beats);
+  rdata = read_data(shared_addr, beats);
+  for (int i = 0; i < beats; i++)
+    if (rdata[i] != buffer[i])
+      printf("%d/%d: memverify[%.016lX] = %.016lX (was %.016lX)\n", i+1, beats+1, i*8+addr, rdata[i], buffer[i]);
+}
+
 void main_access(bool write, uint64_t addr, int size, uint64_t *buffer)  
      {
        uint64_t *rdata;
@@ -1177,20 +1197,17 @@ void main_access(bool write, uint64_t addr, int size, uint64_t *buffer)
            uint64_t *zeros = (uint64_t *)calloc(beats, sizeof(uint64_t));
            if (write)
              {
+               //               enum {chunk=2048};
+               enum {chunk=1024};
                // write
-#if 0
-               for (i = 0; i < beats; i++)
-                 printf("memwrite[%.016lX] = %.016lX\n", i*8+addr, buffer[i]);
-#endif
-               write_data(shared_addr, beats, buffer);
-               dma_copy(axi_shared_addr, addr, -1, beats);
-               // verify
-               write_data(shared_addr, beats, zeros);
-               dma_copy(addr, axi_shared_addr, -1, beats);
-               rdata = read_data(shared_addr, beats);
-               for (i = 0; i < beats; i++)
-                 if (rdata[i] != buffer[i])
-                   printf("%d/%d: memverify[%.016lX] = %.016lX (was %.016lX)\n", i+1, beats+1, i*8+addr, rdata[i], buffer[i]);
+               while (beats > chunk)
+                 {
+                   write_chunk(addr, chunk, buffer, zeros);
+                   addr += chunk*sizeof(uint64_t);
+                   buffer += chunk;
+                   beats -= chunk;
+                 }
+               write_chunk(addr, beats, buffer, zeros);
              }
            else
              {
@@ -1206,22 +1223,88 @@ void main_access(bool write, uint64_t addr, int size, uint64_t *buffer)
          }
      }
 
-uint64_t loadMemory(uint64_t addr, uint8_t *buf, uint64_t bufsz)
+typedef struct chain {
+  uint8_t *buf;
+  uint64_t addr;
+  uint64_t bufsz;
+  struct chain *nxt;
+} chain_t;
+
+chain_t *chain_head = NULL;
+
+uint64_t mem_chain(uint8_t *buf, uint64_t addr, uint64_t bufsz)
 {
-  uint64_t *buf2 = (uint64_t *)calloc(sizeof(uint8_t), bufsz);
-  memcpy(buf2, buf, bufsz);
-  main_access(true, addr, bufsz, buf2);
-  free(buf2);
-  mrange_define(addr, bufsz);
+  if (chain_head && chain_head->addr+chain_head->bufsz == addr)
+    {
+      /* we need to merge the last two blocks */
+      chain_head->buf = (uint8_t *)realloc(chain_head->buf, chain_head->bufsz+bufsz);
+      assert(chain_head->buf);
+      memcpy(chain_head->buf+chain_head->bufsz, buf, bufsz);
+      chain_head->bufsz += bufsz;
+    }
+  else
+    {
+      chain_t *chain_nxt = (chain_t *)malloc(sizeof(chain_t));
+      chain_nxt->buf = (uint8_t *)malloc(bufsz);
+      assert(chain_nxt->buf);
+      chain_nxt->addr = addr;
+      chain_nxt->bufsz = bufsz;
+      chain_nxt->nxt = chain_head;
+      chain_head = chain_nxt;
+      memcpy(chain_nxt->buf, buf, bufsz);
+    }
   return bufsz;
 }
 
-uint64_t initMemory(uint64_t addr, uint64_t bufsz) {
-  uint64_t *buf = (uint64_t *)calloc(sizeof(uint8_t), bufsz);
-  main_access(true, addr, bufsz, buf);
-  free(buf);
-  mrange_define(addr, bufsz);
-  return bufsz;
+void chain_load(chain_t *chain_nxt)
+{
+  if (chain_nxt)
+    {
+      int round;
+      uint64_t *buf2;
+      chain_load(chain_nxt->nxt);
+      round = (chain_nxt->bufsz+sizeof(uint64_t)-1) & (-sizeof(uint64_t));
+      buf2 = (uint64_t *)calloc(sizeof(uint8_t), round);
+      memcpy(buf2, chain_nxt->buf, chain_nxt->bufsz);
+      fprintf(stderr, "Write address %.lX(len=%ld/round=%d)\n", chain_nxt->addr, chain_nxt->bufsz, round);
+      assert(chain_nxt->addr % sizeof(uint64_t) == 0);
+      main_access(true, chain_nxt->addr, round, buf2);
+      mrange_define(chain_nxt->addr, chain_nxt->bufsz);
+      free(buf2);
+    }
+}
+
+void chain_check(chain_t *chain_nxt)
+{
+  if (chain_nxt)
+    {
+      int round;
+      uint64_t *buf2;
+      chain_check(chain_nxt->nxt);
+      round = (chain_nxt->bufsz+sizeof(uint64_t)-1) & (-sizeof(uint64_t));
+      buf2 = (uint64_t *)calloc(sizeof(uint8_t), round);
+      fprintf(stderr, "Check address %.lX(len=%ld/round=%d): ", chain_nxt->addr, chain_nxt->bufsz, round);
+      main_access(false, chain_nxt->addr, round, buf2);
+      if (memcmp(chain_nxt->buf, buf2, chain_nxt->bufsz))
+        {
+          uint64_t tmp;
+          fprintf(stderr, "FAILED!\n");
+          for (int i = 0; i < round/sizeof(uint64_t); i++)
+            {
+              memcpy(&tmp, chain_nxt->buf+i*sizeof(uint64_t), sizeof(uint64_t));
+              if (buf2[i] != tmp)
+                {
+                  fprintf(stderr, "At offset %d/%ld, %.016lX != %.016lX\n", i, round/sizeof(uint64_t), buf2[i], tmp);
+                }
+              exit(1);
+            }
+        }
+      else
+        fprintf(stderr, "OK\n");
+      free(buf2);
+      free(chain_nxt->buf);
+      free(chain_nxt);
+    }
 }
 
 uint64_t regression_load(const char *regression)
@@ -1277,7 +1360,7 @@ uint64_t regression_load(const char *regression)
                                             siz))
                         {
                           if (strcmp(nam,".sdata.CSWTCH.80") && strcmp(nam, ".sdata.Stat")) // Yikes
-                            total_bytes += loadMemory(vma, contents, siz);
+                            total_bytes += mem_chain(contents, vma, siz);
                         }
                     }
                 }
@@ -1288,13 +1371,19 @@ uint64_t regression_load(const char *regression)
                           (unsigned int) vma,
                           siz);
                   if (vma)
-                    total_bytes += initMemory(vma, siz);
+                    {
+                      uint8_t *buf = (uint8_t *)calloc(sizeof(uint8_t), siz);
+                      total_bytes += mem_chain(buf, vma, siz);
+                      free(buf);
+                    }
                 }
             }                   //end of for loop
           
-          fprintf(stderr, "Loaded: %ld B", total_bytes);
+          fprintf(stderr, "Loaded: %ld B\n", total_bytes);
 
           bfd_close(handle);
+          chain_load(chain_head);
+          chain_check(chain_head);
           return entry;
         }
 
@@ -1328,7 +1417,7 @@ void regression_test(const char *regression)
               cpu_reset();
               usleep(10000);
               axi_counters();
-              cpu_debug();
+              //              cpu_debug();
             }
           cpu_commit_status();        
         }
