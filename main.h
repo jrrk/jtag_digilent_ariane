@@ -7,7 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 
-enum {scroll_start=0, axi_base=0x40000000, axi_vga_addr = 0x41008000, axi_shared_addr = 0x42000000, axi_ddr=0x80000000};
+enum {scroll_start=0, axi_base=0x40000000, axi_vga_addr = 0x41008000, axi_shared_addr = 0x90000000, axi_ddr=0x80000000};
 
 typedef enum {rd_mode = 0L, wr_mode = 1L << 32, inc_mode = 1L << 33} jtag_mode_t;
 

@@ -1307,7 +1307,7 @@ void chain_check(chain_t *chain_nxt)
     }
 }
 
-uint64_t regression_load(const char *regression)
+uint64_t regression_load(const char *regression, int voffset)
         {
           uint64_t total_bytes = 0;
           int chk, entry;
@@ -1351,29 +1351,30 @@ uint64_t regression_load(const char *regression)
                     {
                       bfd_byte contents[siz];
                       
-                      fprintf (stderr, "loadable section %s: addr = 0x%08x  size = 0x%08x\n",
+                      fprintf (stderr, "loadable section %s: addr = 0x%08x size = 0x%08x (voffset=%x)\n",
                               nam,
                               (unsigned int) vma,
-                              siz);
+                               siz,
+                               -voffset);
                       if (bfd_get_section_contents (handle, s,
                                                     contents, (file_ptr) 0,
                                             siz))
                         {
                           if (strcmp(nam,".sdata.CSWTCH.80") && strcmp(nam, ".sdata.Stat")) // Yikes
-                            total_bytes += mem_chain(contents, vma, siz);
+                            total_bytes += mem_chain(contents, vma-voffset, siz);
                         }
                     }
                 }
               else
                 {
-                  fprintf (stderr, "non-loadable section %s: addr = 0x%08x  size = 0x%08x\n",
+                  fprintf (stderr, "non-loadable section %s: addr = 0x%08x size = 0x%08x (voffset=%x)\n",
                           nam,
                           (unsigned int) vma,
-                          siz);
+                           siz, -voffset);
                   if (vma)
                     {
                       uint8_t *buf = (uint8_t *)calloc(sizeof(uint8_t), siz);
-                      total_bytes += mem_chain(buf, vma, siz);
+                      total_bytes += mem_chain(buf, vma-voffset, siz);
                       free(buf);
                     }
                 }
@@ -1387,10 +1388,10 @@ uint64_t regression_load(const char *regression)
           return entry;
         }
 
-void regression_test(const char *regression)
+void regression_test(const char *regression, int voffset)
         {
           static char env[256];
-          uint64_t entry = regression_load(regression);
+          uint64_t entry = regression_load(regression, voffset);
           printf("Entry point is at address %.8lX\n", entry);
           if (formal)
             {
@@ -1429,6 +1430,7 @@ int main(int argc, const char **argv)
   int vidtest = 0;
   int axitest = 0;
   int dmatest = 0;
+  int voffset = 0;
   const char *interface = "ftdi";
   srand48(time(0));
   while (argc >= 2 && (argv[1][0]=='-'))
@@ -1446,6 +1448,9 @@ int main(int argc, const char **argv)
         break;
       case 'i':
         interface = 2+argv[1];
+        break;
+      case 'o':
+        voffset = strtol(2+argv[1], NULL, 16);
         break;
       case 'p':
         bridge = atoi(2+argv[1]);
@@ -1539,7 +1544,7 @@ int main(int argc, const char **argv)
         }
       if (regression)
         {
-          regression_test(regression);
+          regression_test(regression, voffset);
         }
       if (bridge)
         {

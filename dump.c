@@ -15,16 +15,18 @@ static struct {
 static int time_inc;
 static int vcd_offset;
 
-static char *backup(int cnt)
+static char *backup(void)
 {
+  int cnt = -1;
   char nam[20];
-  sprintf(nam, "test%d.vcd", cnt);
-  if (!access(nam, F_OK))
-    {
-      char *nam1 = backup(cnt+1);
-      printf("rename(%s, %s);\n", nam, nam1);
-      rename(nam, nam1);
-    }
+  char nam1[20];
+  do {
+    sprintf(nam1, "test%d.vcd", ++cnt);
+    if (!cnt) strcpy(nam, nam1);
+  }
+  while (!access(nam1, F_OK));
+  printf("rename(%s, %s);\n", nam, nam1);
+  rename(nam, nam1);
   return strdup(nam);
 }
 
@@ -35,10 +37,8 @@ void scope(const char *hier)
       vcd_offset = '!';
       if (!time_inc)
         {
-          char *nam;
           time_t now;
-          nam = backup(0);
-          vcdf = fopen(nam,"w");
+          vcdf = fopen(backup(),"w");
           assert(vcdf != NULL);
           time(&now);
           fprintf(vcdf, "$date\n");
