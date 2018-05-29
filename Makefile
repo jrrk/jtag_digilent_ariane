@@ -8,7 +8,7 @@ CXXFLAGS =
 
 jtag_digilent_ariane: $O $P
 	$(CXX) -c $(CXXFLAGS) -DFPGA -g $P
-	$(CXX) -o $@ $(CFLAGS) $O $X -lbfd -lusb-1.0 -L../l3riscv -Xlinker -rpath=../l3riscv -ll3riscv -lstdc++ -lefence
+	$(CXX) -o $@ $(CFLAGS) $O $X -lbfd -lusb-1.0 -L../l3riscv -Xlinker -rpath=../l3riscv -ll3riscv -lstdc++ # -lefence
 
 riscv_rocketpipe.o: ../ariane/tb/riscv_rocketpipe.c
 	$(CC) -c $(CFLAGS) -g $< -o $@

@@ -1427,6 +1427,7 @@ int main(int argc, const char **argv)
 {
   int memtest = 0;
   int bridge = 0;
+  int grab = 0;
   int vidtest = 0;
   int axitest = 0;
   int dmatest = 0;
@@ -1445,6 +1446,9 @@ int main(int argc, const char **argv)
         break;
       case 'f':
         formal = 1;
+        break;
+      case 'g':
+        grab = 1;
         break;
       case 'i':
         interface = 2+argv[1];
@@ -1496,6 +1500,13 @@ int main(int argc, const char **argv)
       my_svf(FREQUENCY, "1.00E+07", "HZ", NULL);
       dbg_master = 0;
       cpu_debug();
+      if (grab)
+        {
+          enum {burst=1<<12};
+          uint64_t *chk = read_data(boot_addr, burst);
+          FILE *grabf = fopen("grab.txt", "w");
+          fwrite(chk, burst, sizeof(uint64_t), grabf);
+        }
       if (dmatest) axi_dma();
       if (memtest)
         {
